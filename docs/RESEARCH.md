@@ -214,6 +214,12 @@ Carried over from build sessions, roughly in priority order:
   read that and decode correctly; this fixture carries no label at
   all, so the full fix is (a) honor the label when present and (b) a
   manual code-page override in the UI for unlabeled files.
+- **Column-aware text ordering** — `Page.plain_text` (used by the
+  copy/.txt buttons) sorts runs top-down then left-right, so
+  multi-column layouts (e.g. the health sample's options table)
+  interleave across columns instead of reading one column at a time.
+  Fine for search/reference, not for transcription; would need column
+  detection by x-position clustering.
 - **Triplet detail view** — `iter_triplets()` exists; the inspector
   should decode and show triplets per field instead of a hex preview.
 - **IOCA / GOCA / BCOCA objects** — images beyond object containers
