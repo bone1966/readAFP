@@ -117,7 +117,10 @@ Milestones:
 1. ✅ **Structured-field inspector** — parse SF stream, show nested
    tree, token names, hex preview (`src/readafp/parser.py` + Flask app;
    parses 138/138 corpus files).
-2. **Triplet decoding** + per-field detail view.
+2. 🔶 **Triplet decoding** + per-field detail view — `iter_triplets()`
+   plus MDR font mapping done (FQN font names, data-object font
+   descriptor sizes, local ids → family/weight/size for the renderer).
+   Still to do: general triplet decoding in the inspector's detail view.
 3. ✅ **Text extraction** — PTOCA control sequences decoded from PTX
    fields (`src/readafp/ptoca.py`): moves, text runs, rules, colors
    (STC/SEC), with UTF-16BE/EBCDIC heuristics. Still to do: real code

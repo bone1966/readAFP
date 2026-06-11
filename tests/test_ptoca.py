@@ -9,6 +9,7 @@ from readafp.ptoca import (
     ControlSequence,
     extract_pages,
     iter_control_sequences,
+    parse_mdr_fonts,
     _decode_trn,
 )
 from readafp.render import page_to_svg
@@ -83,6 +84,50 @@ def test_page_to_svg_escapes_and_positions() -> None:
     assert "&" not in svg.replace("&amp;", "").replace("&lt;", "").replace(
         "&gt;", ""
     ).replace("&quot;", "").replace("&#", "")
+
+
+def test_mdr_font_mapping_health_sample() -> None:
+    if not HEALTH_SAMPLE.exists():
+        pytest.skip("test corpus not present")
+    fields = parse_file(str(HEALTH_SAMPLE))
+    mdr = next(f for f in fields if f.sf_id == 0xD3ABC3)
+    fonts = parse_mdr_fonts(mdr.data)
+    assert fonts[1].family == "Arial" and fonts[1].weight == "bold"
+    assert fonts[2].family == "Segoe UI"
+    assert fonts[3].family == "Arial" and fonts[3].weight == "normal"
+    # 9pt and 27pt, in L-units (1pt = 20 units at 1440/inch).
+    assert fonts[1].size == 180
+    assert fonts[2].size == 540
+
+
+def test_text_runs_carry_mapped_fonts() -> None:
+    if not HEALTH_SAMPLE.exists():
+        pytest.skip("test corpus not present")
+    page = extract_pages(parse_file(str(HEALTH_SAMPLE)))[0]
+    john = next(r for r in page.texts if r.text == "John")
+    assert john.font_weight == "bold"
+    assert john.font_size == 180
+    heading = next(r for r in page.texts if "Continuing" in r.text)
+    assert heading.font_family == "Segoe UI"
+    assert heading.font_size == 540
+
+
+def test_table_band_sits_behind_white_labels() -> None:
+    if not HEALTH_SAMPLE.exists():
+        pytest.skip("test corpus not present")
+    page = extract_pages(parse_file(str(HEALTH_SAMPLE)))[0]
+    options = next(r for r in page.texts if r.text == "Options")
+    assert options.color == "#ffffff"
+    band = [
+        r
+        for r in page.rules
+        if r.color == "#2196f3" and r.axis == "I" and r.thickness >= 100
+    ]
+    assert band, "blue header band rules missing"
+    # Rules extend downward from their position: the white label's
+    # baseline must fall inside the band's vertical span.
+    cell = band[0]
+    assert cell.y <= options.y <= cell.y + cell.thickness
 
 
 def test_extract_pages_empty_document() -> None:

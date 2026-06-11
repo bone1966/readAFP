@@ -17,7 +17,7 @@ Reference: PTOCA Reference, AFPC-0009-04 (docs/specs/ptoca-reference-04.pdf).
 
 import logging
 from dataclasses import dataclass, field
-from typing import Iterator, List, Optional, Tuple
+from typing import Dict, Iterator, List, Optional, Tuple
 
 from readafp.parser import StructuredField
 
@@ -83,6 +83,15 @@ class ControlSequence:
 
 
 @dataclass
+class FontInfo:
+    """A font mapped to a local id by MDR/MCF, as far as we can decode it."""
+
+    family: str = "Arial"
+    weight: str = "normal"
+    size: Optional[int] = None  # L-units (at 1440/inch, 1pt = 20 units)
+
+
+@dataclass
 class TextRun:
     """A run of text positioned on a page, in page L-units."""
 
@@ -92,6 +101,8 @@ class TextRun:
     color: str = DEFAULT_COLOR
     font_id: Optional[int] = None
     font_size: int = DEFAULT_FONT_SIZE
+    font_family: str = "Arial"
+    font_weight: str = "normal"
 
 
 @dataclass
@@ -190,6 +201,57 @@ def _s16(b: bytes, off: int = 0) -> int:
     return int.from_bytes(b[off : off + 2], "big", signed=True)
 
 
+def iter_triplets(data: bytes) -> Iterator[Tuple[int, bytes]]:
+    """Yield (triplet id, triplet data) from a run of MO:DCA triplets."""
+    pos = 0
+    while pos + 2 <= len(data):
+        length, tid = data[pos], data[pos + 1]
+        if length < 2 or pos + length > len(data):
+            break
+        yield tid, bytes(data[pos + 2 : pos + length])
+        pos += length
+
+
+def parse_mdr_fonts(data: bytes) -> Dict[int, FontInfo]:
+    """Extract font name/size per local id from an MDR (Map Data Resource).
+
+    The MDR body is repeating groups (u16 length includes itself), each
+    holding triplets. For data-object fonts the useful ones are:
+
+    - 0x02 FQN type 0xDE: the font's full name (e.g. "Arial Bold")
+    - 0x8B data-object font descriptor: point size in 1/20 pt at offset 2,
+      which at 1440 L-units/inch is the size in L-units directly
+    - 0x02 FQN type 0xBE: the local id PTX SCFL sequences select
+    """
+    fonts: Dict[int, FontInfo] = {}
+    pos = 0
+    while pos + 2 <= len(data):
+        group_len = _u16(data, pos)
+        if group_len < 2 or pos + group_len > len(data):
+            break
+        name: Optional[str] = None
+        size: Optional[int] = None
+        local_id: Optional[int] = None
+        for tid, tdata in iter_triplets(data[pos + 2 : pos + group_len]):
+            if tid == 0x02 and len(tdata) >= 3:
+                if tdata[0] == 0xDE:
+                    name = _decode_trn(tdata[2:]).strip()
+                elif tdata[0] == 0xBE:
+                    local_id = tdata[-1]
+            elif tid == 0x8B and len(tdata) >= 4:
+                size = _u16(tdata, 2)
+        if local_id is not None:
+            family = name or "Arial"
+            weight = "normal"
+            for marker in (" Bold", " bold"):
+                if marker in family:
+                    family = family.replace(marker, "")
+                    weight = "bold"
+            fonts[local_id] = FontInfo(family=family, weight=weight, size=size)
+        pos += group_len
+    return fonts
+
+
 def _sec_color(params: bytes) -> Optional[str]:
     """Decode an SEC (Set Extended Color) RGB value, if that's what it is."""
     # reserved(1) colorspace(1) reserved(4) sizes(4) value(...)
@@ -202,13 +264,16 @@ def _sec_color(params: bytes) -> Optional[str]:
 class _TextState:
     """Mutable PTOCA interpreter state, carried across PTX fields of a page."""
 
-    def __init__(self) -> None:
+    def __init__(self, fonts: Optional[Dict[int, FontInfo]] = None) -> None:
         self.i = 0
         self.b = 0
         self.inline_margin = 0
         self.baseline_increment = 0
         self.color = DEFAULT_COLOR
         self.font_id: Optional[int] = None
+        # Keep the caller's dict: it may be filled by MDRs seen later
+        # (the page's AEG comes after BPG).
+        self.fonts = fonts if fonts is not None else {}
 
     def apply(self, cs: ControlSequence, page: Page) -> None:
         t, p = cs.cs_type, cs.params
@@ -238,6 +303,8 @@ class _TextState:
             self.b = 0
         elif t == 0xDA:  # TRN
             text = _decode_trn(p)
+            info = self.fonts.get(self.font_id, FontInfo())
+            size = info.size or DEFAULT_FONT_SIZE
             if text.strip():
                 page.texts.append(
                     TextRun(
@@ -246,9 +313,12 @@ class _TextState:
                         text=text,
                         color=self.color,
                         font_id=self.font_id,
+                        font_size=size,
+                        font_family=info.family,
+                        font_weight=info.weight,
                     )
                 )
-            self.i += int(len(text) * DEFAULT_FONT_SIZE * _CHAR_ADVANCE_RATIO)
+            self.i += int(len(text) * size * _CHAR_ADVANCE_RATIO)
         elif t == 0xE4 and len(p) >= 2:  # DIR: horizontal rule
             page.rules.append(self._rule(p, axis="I"))
         elif t == 0xE6 and len(p) >= 2:  # DBR: vertical rule
@@ -256,32 +326,38 @@ class _TextState:
 
     def _rule(self, p: bytes, axis: str) -> Rule:
         length = _s16(p)
-        thickness = _u16(p, 2) if len(p) >= 4 else 20
+        thickness = _s16(p, 2) if len(p) >= 4 else 20
+        if abs(thickness) < 10:  # keep hairlines visible once scaled
+            thickness = 10 if thickness >= 0 else -10
         return Rule(
             x=self.i,
             y=self.b,
             length=length,
-            thickness=max(thickness, 10),
+            thickness=thickness,
             axis=axis,
             color=self.color,
         )
 
 
-def _estimate_font_sizes(page: Page) -> None:
+def _estimate_font_sizes(page: Page, known_fonts: Dict[int, FontInfo]) -> None:
     """Set each text run's font size from observed inter-run spacing.
 
-    Without FOCA/TrueType metrics we don't know glyph sizes, but most
-    producers position every run with an explicit move. The gap between
-    two consecutive runs on the same baseline, divided by the first run's
-    character count (+1 for the implied space), approximates that font's
-    character width — and Latin text averages roughly half the point size.
+    Fallback for fonts whose size was not declared by an MDR descriptor:
+    most producers position every run with an explicit move, so the gap
+    between two consecutive runs on the same baseline, divided by the
+    first run's character count (+1 for the implied space), approximates
+    that font's character width — and Latin text averages roughly half
+    the point size.
     """
+    sized = {fid for fid, info in known_fonts.items() if info.size}
     samples: dict = {}
     for a, b in zip(page.texts, page.texts[1:]):
-        if a.y == b.y and b.x > a.x and a.text:
+        if a.y == b.y and b.x > a.x and a.text and a.font_id not in sized:
             per_char = (b.x - a.x) / (len(a.text) + 1)
             samples.setdefault(a.font_id, []).append(per_char)
     for run in page.texts:
+        if run.font_id in sized:
+            continue
         widths = samples.get(run.font_id)
         if widths:
             widths.sort()
@@ -309,18 +385,21 @@ def extract_pages(fields: List[StructuredField]) -> List[Page]:
     current: Optional[Page] = None
     state: Optional[_TextState] = None
     pgd_default: Optional[Tuple[int, int, int]] = None
+    fonts: Dict[int, FontInfo] = {}
 
     for f in fields:
         if f.sf_id == 0xD3A8AF:  # BPG
             current = Page()
             if pgd_default:
                 current.width, current.height, current.units_per_inch = pgd_default
-            state = _TextState()
+            state = _TextState(fonts)
         elif f.sf_id == 0xD3A9AF:  # EPG
             if current is not None:
-                _estimate_font_sizes(current)
+                _estimate_font_sizes(current, fonts)
                 pages.append(current)
             current, state = None, None
+        elif f.sf_id == 0xD3ABC3:  # MDR maps fonts to SCFL local ids
+            fonts.update(parse_mdr_fonts(f.data))
         elif f.sf_id == 0xD3A6AF and len(f.data) >= 12:  # PGD
             parsed = _parse_pgd(f.data)
             if current is not None:

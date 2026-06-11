@@ -24,11 +24,13 @@ def page_to_svg(page: Page) -> str:
         f'<rect width="{page.width}" height="{page.height}" fill="#ffffff"/>',
     ]
     for rule in page.rules:
+        # Rules extend from the current position in the +I/+B direction
+        # (negative length or width extends the other way).
         if rule.axis == "I":
-            x, y = rule.x, rule.y - rule.thickness // 2
+            x, y = rule.x, rule.y
             w, h = rule.length, rule.thickness
         else:
-            x, y = rule.x - rule.thickness // 2, rule.y
+            x, y = rule.x, rule.y
             w, h = rule.thickness, rule.length
         if w < 0:
             x, w = x + w, -w
@@ -39,8 +41,15 @@ def page_to_svg(page: Page) -> str:
             f'fill={quoteattr(rule.color)}/>'
         )
     for run in page.texts:
+        weight = ' font-weight="bold"' if run.font_weight == "bold" else ""
+        family = (
+            f" font-family={quoteattr(run.font_family)}"
+            if run.font_family != "Arial"
+            else ""
+        )
         parts.append(
-            f'<text x="{run.x}" y="{run.y}" font-size="{run.font_size}" '
+            f'<text x="{run.x}" y="{run.y}" font-size="{run.font_size}"'
+            f"{family}{weight} "
             f'fill={quoteattr(run.color)}>{escape(run.text)}</text>'
         )
     parts.append("</svg>")
