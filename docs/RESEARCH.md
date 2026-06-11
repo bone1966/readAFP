@@ -197,6 +197,18 @@ Carried over from build sessions, roughly in priority order:
 - **Code pages via MCF** — TRN decoding assumes cp500/UTF-16BE;
   mainframe files use other EBCDIC code pages (`large_ibm273.afp` is
   the IBM273 German fixture to test against).
+
+  *In plain words:* computers store letters as numbers, and a code
+  page is the decoder ring that turns numbers back into letters. IBM
+  made different rings for different countries — the German ring
+  (cp273) swaps a few numbers compared to the international one
+  (cp500) to make room for ä/ö/ü. Decode a file with the wrong ring
+  and most letters survive but a few turn to junk: that's why
+  `large_ibm273.afp` shows "H{ll[ W¦rld" instead of "Hello World".
+  A well-formed file *labels* its ring via MCF/CGCSGID triplets —
+  read that and decode correctly; this fixture carries no label at
+  all, so the full fix is (a) honor the label when present and (b) a
+  manual code-page override in the UI for unlabeled files.
 - **Triplet detail view** — `iter_triplets()` exists; the inspector
   should decode and show triplets per field instead of a hex preview.
 - **IOCA / GOCA / BCOCA objects** — images beyond object containers
