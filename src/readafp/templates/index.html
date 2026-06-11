@@ -10,16 +10,18 @@
       --text: #e4e6f0; --dim: #9aa0b8; --accent: #26c6da; --warn: #ef5350;
     }
     * { box-sizing: border-box; }
+    html, body { height: 100%; }
     body {
       margin: 0; padding: 24px 32px; background: var(--bg); color: var(--text);
       font-family: "Segoe UI", system-ui, sans-serif;
+      display: flex; flex-direction: column;
     }
     h1 { margin: 0 0 4px; }
     .sub { color: var(--dim); margin-bottom: 24px; }
     form {
       display: flex; gap: 10px; align-items: center; padding: 16px;
       background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
-      margin-bottom: 24px;
+      margin-bottom: 16px;
     }
     input[type=file] { color: var(--dim); }
     button {
@@ -30,8 +32,19 @@
       background: rgba(239, 83, 80, 0.15); border: 1px solid var(--warn);
       color: var(--warn); padding: 12px 16px; border-radius: 10px; margin-bottom: 20px;
     }
-    .meta { color: var(--dim); margin-bottom: 16px; }
-    .layout { display: flex; gap: 20px; align-items: flex-start; }
+    .meta { color: var(--dim); margin: 0; }
+    .toolbar {
+      display: flex; align-items: center; gap: 16px; margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .view-toggle { display: flex; gap: 0; border: 1px solid var(--border);
+      border-radius: 8px; overflow: hidden; }
+    .view-toggle button {
+      background: var(--panel); color: var(--dim); border-radius: 0;
+      font-weight: 500; padding: 7px 16px;
+    }
+    .view-toggle button.active { background: var(--accent); color: #08222a;
+      font-weight: 600; }
     table {
       border-collapse: collapse; width: 100%; font-size: 0.85rem;
       background: var(--panel); border-radius: 12px; overflow: hidden;
@@ -42,13 +55,41 @@
     .sf-name { font-weight: 600; }
     .token { color: var(--accent); font-family: Consolas, monospace; }
     .summary {
-      flex-shrink: 0; width: 320px; background: var(--panel);
-      border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; padding: 14px 18px; margin-bottom: 16px;
     }
-    .summary h3 { margin: 0 0 10px; }
+    .summary h3 { margin: 0 0 10px; font-size: 0.95rem; }
     .summary div { display: flex; justify-content: space-between; padding: 3px 0;
       font-size: 0.85rem; }
     .summary span:last-child { color: var(--dim); font-variant-numeric: tabular-nums; }
+
+    /* Split layout: inspector | divider | renderer */
+    .split {
+      display: flex; flex: 1; min-height: 0; gap: 0;
+      border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+    }
+    .pane { overflow: auto; min-width: 0; }
+    #inspect-pane { flex: 0 0 55%; padding: 14px; background: var(--bg); }
+    #render-pane {
+      flex: 1; background: #3c4154; padding: 24px;
+      display: flex; flex-direction: column; align-items: center; gap: 12px;
+    }
+    #divider {
+      flex: 0 0 6px; cursor: col-resize; background: var(--border);
+    }
+    #divider:hover, #divider.dragging { background: var(--accent); }
+    .split.inspect-only #render-pane, .split.inspect-only #divider { display: none; }
+    .split.inspect-only #inspect-pane { flex: 1; }
+    .split.render-only #inspect-pane, .split.render-only #divider { display: none; }
+    .page-nav { display: flex; align-items: center; gap: 12px; color: #cdd2e4; }
+    .page-nav button { padding: 4px 12px; background: var(--card); color: var(--text); }
+    .page-nav button:disabled { opacity: 0.35; cursor: default; }
+    .sheet {
+      background: white; box-shadow: 0 4px 18px rgba(0,0,0,0.45);
+      width: 100%; max-width: 850px;
+    }
+    .sheet svg { display: block; width: 100%; height: auto; }
+    .render-note { color: #aab0c6; font-size: 0.8rem; }
   </style>
 </head>
 <body>
@@ -63,30 +104,115 @@
   {% if error %}<div class="error">{{ error }}</div>{% endif %}
 
   {% if fields %}
-  <p class="meta"><b>{{ filename }}</b> · {{ "{:,}".format(filesize) }} bytes ·
-    {{ "{:,}".format(fields|length) }} structured fields</p>
-  <div class="layout">
-    <table>
-      <tr><th>Offset</th><th>ID</th><th>Structured field</th><th>Name</th>
-          <th>Data len</th><th>Data preview (hex)</th></tr>
-      {% for f in fields %}
-      <tr>
-        <td class="num">{{ f.offset }}</td>
-        <td class="hex">{{ f.sf_id }}</td>
-        <td class="sf-name" style="padding-left: {{ 12 + f.depth * 18 }}px">{{ f.name }}</td>
-        <td class="token">{{ f.token }}</td>
-        <td class="num">{{ f.length }}</td>
-        <td class="hex">{{ f.preview }}</td>
-      </tr>
-      {% endfor %}
-    </table>
-    <div class="summary">
-      <h3>Field counts</h3>
-      {% for name, count in summary %}
-      <div><span>{{ name }}</span><span>{{ count }}</span></div>
-      {% endfor %}
+  <div class="toolbar">
+    <p class="meta"><b>{{ filename }}</b> · {{ "{:,}".format(filesize) }} bytes ·
+      {{ "{:,}".format(fields|length) }} structured fields
+      {% if page_total %} · {{ page_total }} page{{ "s" if page_total != 1 }}{% endif %}</p>
+    {% if page_svgs %}
+    <div class="view-toggle" role="group" aria-label="View mode">
+      <button type="button" data-view="inspect-only">Inspect</button>
+      <button type="button" data-view="" class="active">Split</button>
+      <button type="button" data-view="render-only">Render</button>
     </div>
+    {% endif %}
   </div>
+
+  <div class="split{% if not page_svgs %} inspect-only{% endif %}" id="split">
+    <div class="pane" id="inspect-pane">
+      <div class="summary">
+        <h3>Field counts</h3>
+        {% for name, count in summary %}
+        <div><span>{{ name }}</span><span>{{ count }}</span></div>
+        {% endfor %}
+      </div>
+      <table>
+        <tr><th>Offset</th><th>ID</th><th>Structured field</th><th>Name</th>
+            <th>Data len</th><th>Data preview (hex)</th></tr>
+        {% for f in fields %}
+        <tr>
+          <td class="num">{{ f.offset }}</td>
+          <td class="hex">{{ f.sf_id }}</td>
+          <td class="sf-name" style="padding-left: {{ 12 + f.depth * 18 }}px">{{ f.name }}</td>
+          <td class="token">{{ f.token }}</td>
+          <td class="num">{{ f.length }}</td>
+          <td class="hex">{{ f.preview }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </div>
+
+    {% if page_svgs %}
+    <div id="divider" title="Drag to resize"></div>
+    <div class="pane" id="render-pane">
+      <div class="page-nav">
+        <button type="button" id="prev-page">◀</button>
+        <span id="page-label">Page 1 of {{ page_svgs|length }}</span>
+        <button type="button" id="next-page">▶</button>
+        {% if page_total > page_svgs|length %}
+        <span class="render-note">(first {{ page_svgs|length }} of {{ page_total }} rendered)</span>
+        {% endif %}
+      </div>
+      <div class="sheet" id="sheet">{{ page_svgs[0]|safe }}</div>
+      <p class="render-note">Rough render: substitute font, text &amp; rules only —
+        images, graphics and embedded fonts not yet drawn.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if page_svgs %}
+  <script>
+    const svgs = [{% for svg in page_svgs %}{{ svg|tojson }}{{ "," if not loop.last }}{% endfor %}];
+    let pageIdx = 0;
+    const sheet = document.getElementById("sheet");
+    const label = document.getElementById("page-label");
+    const prevBtn = document.getElementById("prev-page");
+    const nextBtn = document.getElementById("next-page");
+
+    function showPage(idx) {
+      pageIdx = Math.max(0, Math.min(idx, svgs.length - 1));
+      sheet.innerHTML = svgs[pageIdx];
+      label.textContent = `Page ${pageIdx + 1} of ${svgs.length}`;
+      prevBtn.disabled = pageIdx === 0;
+      nextBtn.disabled = pageIdx === svgs.length - 1;
+    }
+    prevBtn.addEventListener("click", () => showPage(pageIdx - 1));
+    nextBtn.addEventListener("click", () => showPage(pageIdx + 1));
+    showPage(0);
+
+    // View toggle: inspect-only / split / render-only.
+    const split = document.getElementById("split");
+    document.querySelectorAll(".view-toggle button").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        split.classList.remove("inspect-only", "render-only");
+        if (btn.dataset.view) split.classList.add(btn.dataset.view);
+        document.querySelectorAll(".view-toggle button")
+          .forEach((b) => b.classList.toggle("active", b === btn));
+      });
+    });
+
+    // Draggable divider: resizes the inspector pane's flex-basis.
+    const divider = document.getElementById("divider");
+    const inspectPane = document.getElementById("inspect-pane");
+    divider.addEventListener("mousedown", (down) => {
+      down.preventDefault();
+      divider.classList.add("dragging");
+      const startX = down.clientX;
+      const startWidth = inspectPane.getBoundingClientRect().width;
+      const totalWidth = split.getBoundingClientRect().width;
+      function onMove(move) {
+        const pct = ((startWidth + move.clientX - startX) / totalWidth) * 100;
+        inspectPane.style.flexBasis = Math.max(15, Math.min(85, pct)) + "%";
+      }
+      function onUp() {
+        divider.classList.remove("dragging");
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      }
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+  </script>
+  {% endif %}
   {% endif %}
 </body>
 </html>

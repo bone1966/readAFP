@@ -118,10 +118,14 @@ Milestones:
    tree, token names, hex preview (`src/readafp/parser.py` + Flask app;
    parses 138/138 corpus files).
 2. **Triplet decoding** + per-field detail view.
-3. **Text extraction** — decode PTOCA control sequences in PTX fields,
-   map code pages (EBCDIC→Unicode), emit plain text per page.
-4. **Page rendering** — lay out PTX text on an HTML canvas/SVG using
-   PGD/PTD units; then IOCA images (raw + JPEG/CCITT wrapped), then
-   GOCA vectors and BCOCA barcodes.
+3. ✅ **Text extraction** — PTOCA control sequences decoded from PTX
+   fields (`src/readafp/ptoca.py`): moves, text runs, rules, colors
+   (STC/SEC), with UTF-16BE/EBCDIC heuristics. Still to do: real code
+   page mapping via MCF/MDR triplets (depends on milestone 2).
+4. 🔶 **Page rendering** — first pass done (`src/readafp/render.py` +
+   split-pane UI): PTX text and rules on an SVG sized from the PGD,
+   font sizes estimated from inter-run spacing. Still to do: real font
+   metrics (FOCA/TrueType), IOCA images (raw + JPEG/CCITT wrapped),
+   GOCA vectors and BCOCA barcodes, text orientation (STO rotations).
 5. **Quality-of-life** — page thumbnails, search, export page as
    PNG/PDF, drag-and-drop upload (BTB feature parity, but in browser).
