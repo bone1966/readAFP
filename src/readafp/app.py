@@ -60,12 +60,21 @@ def create_app() -> Flask:
 
 
 def _field_rows(parsed: List[StructuredField]) -> List[Dict[str, Any]]:
-    """Flatten structured fields into display rows with nesting depth."""
+    """Flatten structured fields into display rows with nesting depth.
+
+    Each row also carries the index of the page (BPG...EPG bracket) it
+    belongs to, so the UI can link inspector rows to rendered pages.
+    """
     rows: List[Dict[str, Any]] = []
     depth = 0
+    page_idx = -1
+    current_page: Any = None
     for field in parsed:
         if field.type_code == 0xA9 and depth > 0:  # End fields close a level
             depth -= 1
+        if field.sf_id == 0xD3A8AF:  # BPG
+            page_idx += 1
+            current_page = page_idx
         rows.append(
             {
                 "offset": field.offset,
@@ -75,8 +84,11 @@ def _field_rows(parsed: List[StructuredField]) -> List[Dict[str, Any]]:
                 "length": len(field.data),
                 "depth": depth,
                 "preview": field.data[:16].hex(" "),
+                "page": current_page,
             }
         )
+        if field.sf_id == 0xD3A9AF:  # EPG
+            current_page = None
         if field.type_code == 0xA8:  # Begin fields open a level
             depth += 1
     return rows

@@ -54,9 +54,15 @@
       border-radius: 12px; padding: 14px 18px; margin-bottom: 16px;
     }
     .summary h3 { margin: 0 0 10px; font-size: 0.95rem; }
-    .summary div { display: flex; justify-content: space-between; padding: 3px 0;
-      font-size: 0.85rem; }
+    .summary div { display: flex; justify-content: space-between; padding: 3px 6px;
+      font-size: 0.85rem; cursor: pointer; border-radius: 6px; }
+    .summary div:hover { background: var(--card); }
+    .summary div.active { background: var(--card); color: var(--accent); }
     .summary span:last-child { color: var(--dim); font-variant-numeric: tabular-nums; }
+    #sf-table tr[data-page] { cursor: pointer; }
+    #sf-table tr.filtered { display: none; }
+    #sf-table tr.selected td { background: rgba(38, 198, 218, 0.12); }
+    #sf-table tr.page-anchor td { box-shadow: inset 3px 0 0 var(--accent); }
 
     /* Split layout: inspector | divider | renderer */
     .split {
@@ -115,16 +121,16 @@
   <div class="split{% if not page_svgs %} inspect-only{% endif %}" id="split">
     <div class="pane" id="inspect-pane">
       <div class="summary">
-        <h3>Field counts</h3>
+        <h3>Field counts <span style="font-weight:400;color:var(--dim)">— click to filter</span></h3>
         {% for name, count in summary %}
-        <div><span>{{ name }}</span><span>{{ count }}</span></div>
+        <div data-name="{{ name }}"><span>{{ name }}</span><span>{{ count }}</span></div>
         {% endfor %}
       </div>
-      <table>
+      <table id="sf-table">
         <tr><th>Offset</th><th>ID</th><th>Structured field</th><th>Name</th>
             <th>Data len</th><th>Data preview (hex)</th></tr>
         {% for f in fields %}
-        <tr>
+        <tr data-name="{{ f.name }}"{% if f.page is not none %} data-page="{{ f.page }}"{% endif %}>
           <td class="num">{{ f.offset }}</td>
           <td class="hex">{{ f.sf_id }}</td>
           <td class="sf-name" style="padding-left: {{ 12 + f.depth * 18 }}px">{{ f.name }}</td>
@@ -153,25 +159,65 @@
     {% endif %}
   </div>
 
-  {% if page_svgs %}
   <script>
-    const svgs = [{% for svg in page_svgs %}{{ svg|tojson }}{{ "," if not loop.last }}{% endfor %}];
+    const svgs = [{% for svg in page_svgs or [] %}{{ svg|tojson }}{{ "," if not loop.last }}{% endfor %}];
     let pageIdx = 0;
     const sheet = document.getElementById("sheet");
     const label = document.getElementById("page-label");
     const prevBtn = document.getElementById("prev-page");
     const nextBtn = document.getElementById("next-page");
 
-    function showPage(idx) {
+    // Render page change; by default also scrolls the inspector to the
+    // page's first field (its BPG row) and marks the page's rows.
+    function showPage(idx, syncInspector = true) {
+      if (!svgs.length) return;
       pageIdx = Math.max(0, Math.min(idx, svgs.length - 1));
       sheet.innerHTML = svgs[pageIdx];
       label.textContent = `Page ${pageIdx + 1} of ${svgs.length}`;
       prevBtn.disabled = pageIdx === 0;
       nextBtn.disabled = pageIdx === svgs.length - 1;
+      document.querySelectorAll("#sf-table tr.page-anchor")
+        .forEach((t) => t.classList.remove("page-anchor"));
+      document.querySelectorAll(`#sf-table tr[data-page="${pageIdx}"]`)
+        .forEach((t) => t.classList.add("page-anchor"));
+      if (syncInspector) {
+        const anchor = document.querySelector(`#sf-table tr[data-page="${pageIdx}"]`);
+        if (anchor) anchor.scrollIntoView({ block: "center", behavior: "smooth" });
+      }
     }
-    prevBtn.addEventListener("click", () => showPage(pageIdx - 1));
-    nextBtn.addEventListener("click", () => showPage(pageIdx + 1));
-    showPage(0);
+    if (svgs.length) {
+      prevBtn.addEventListener("click", () => showPage(pageIdx - 1));
+      nextBtn.addEventListener("click", () => showPage(pageIdx + 1));
+      showPage(0, false);
+    }
+
+    // Inspector row click -> jump the render to that field's page.
+    document.querySelectorAll("#sf-table tr[data-page]").forEach((tr) => {
+      tr.addEventListener("click", () => {
+        document.querySelectorAll("#sf-table tr.selected")
+          .forEach((t) => t.classList.remove("selected"));
+        tr.classList.add("selected");
+        const p = parseInt(tr.dataset.page, 10);
+        if (p < svgs.length) showPage(p, false);
+      });
+    });
+
+    // Field-count click -> filter the table to that field type (toggle).
+    const countRows = document.querySelectorAll(".summary div[data-name]");
+    countRows.forEach((cr) => {
+      cr.addEventListener("click", () => {
+        const wasActive = cr.classList.contains("active");
+        countRows.forEach((c) => c.classList.remove("active"));
+        const rows = document.querySelectorAll("#sf-table tr[data-name]");
+        rows.forEach((tr) => tr.classList.remove("filtered"));
+        if (!wasActive) {
+          cr.classList.add("active");
+          rows.forEach((tr) => {
+            if (tr.dataset.name !== cr.dataset.name) tr.classList.add("filtered");
+          });
+        }
+      });
+    });
 
     // View toggle: inspect-only / split / render-only.
     const split = document.getElementById("split");
@@ -187,26 +233,27 @@
     // Draggable divider: resizes the inspector pane's flex-basis.
     const divider = document.getElementById("divider");
     const inspectPane = document.getElementById("inspect-pane");
-    divider.addEventListener("mousedown", (down) => {
-      down.preventDefault();
-      divider.classList.add("dragging");
-      const startX = down.clientX;
-      const startWidth = inspectPane.getBoundingClientRect().width;
-      const totalWidth = split.getBoundingClientRect().width;
-      function onMove(move) {
-        const pct = ((startWidth + move.clientX - startX) / totalWidth) * 100;
-        inspectPane.style.flexBasis = Math.max(15, Math.min(85, pct)) + "%";
-      }
-      function onUp() {
-        divider.classList.remove("dragging");
-        document.removeEventListener("mousemove", onMove);
-        document.removeEventListener("mouseup", onUp);
-      }
-      document.addEventListener("mousemove", onMove);
-      document.addEventListener("mouseup", onUp);
-    });
+    if (divider) {
+      divider.addEventListener("mousedown", (down) => {
+        down.preventDefault();
+        divider.classList.add("dragging");
+        const startX = down.clientX;
+        const startWidth = inspectPane.getBoundingClientRect().width;
+        const totalWidth = split.getBoundingClientRect().width;
+        function onMove(move) {
+          const pct = ((startWidth + move.clientX - startX) / totalWidth) * 100;
+          inspectPane.style.flexBasis = Math.max(15, Math.min(85, pct)) + "%";
+        }
+        function onUp() {
+          divider.classList.remove("dragging");
+          document.removeEventListener("mousemove", onMove);
+          document.removeEventListener("mouseup", onUp);
+        }
+        document.addEventListener("mousemove", onMove);
+        document.addEventListener("mouseup", onUp);
+      });
+    }
   </script>
-  {% endif %}
   {% endif %}
 </body>
 </html>

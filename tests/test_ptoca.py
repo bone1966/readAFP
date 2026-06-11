@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from readafp.parser import parse_file
+from readafp.parser import iter_fields, parse_file
 from readafp.ptoca import (
     ControlSequence,
     extract_pages,
@@ -142,6 +142,36 @@ def test_object_container_jpeg_is_placed() -> None:
     assert (logo.width, logo.height) == (2385, 720)
     svg = page_to_svg(page)
     assert "data:image/jpeg;base64," in svg
+
+
+def _sf(sf_id: int, data: bytes = b"") -> bytes:
+    """Build one structured-field record."""
+    body = sf_id.to_bytes(3, "big") + b"\x00\x00\x00" + data
+    return b"\x5a" + (len(body) + 2).to_bytes(2, "big") + body
+
+
+def test_extract_pages_multipage_document() -> None:
+    def page(text: str) -> bytes:
+        ptx = bytes.fromhex("2bd3" "04c70064" "04d300c8") + bytes(
+            [2 + len(text), 0xDA]
+        ) + text.encode("cp500")
+        return (
+            _sf(0xD3A8AF, b"\x00" * 8)  # BPG
+            + _sf(0xD3EE9B, ptx)  # PTX
+            + _sf(0xD3A9AF, b"\x00" * 8)  # EPG
+        )
+
+    doc = (
+        _sf(0xD3A8A8, b"\x00" * 8)
+        + page("First")
+        + page("Second")
+        + _sf(0xD3A9A8, b"\x00" * 8)
+    )
+    pages = extract_pages(list(iter_fields(doc)))
+    assert len(pages) == 2
+    assert pages[0].texts[0].text == "First"
+    assert pages[1].texts[0].text == "Second"
+    assert pages[1].texts[0].x == 0x64 and pages[1].texts[0].y == 0xC8
 
 
 def test_extract_pages_empty_document() -> None:
