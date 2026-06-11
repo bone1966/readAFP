@@ -144,9 +144,11 @@ renderer — all 138 files parse, but render coverage is thin):
   `modca-reference-10/Chapter_1.afp` is just BDT+EDT). Good parser
   fixtures, useless for rendering.
 - `perf_ptx.afp` (65,536 PTX) and `large_ibm273.afp` (444 PTX) carry
-  their PTX **directly under BDT with no BPG/EPG page brackets**, so
-  the page extractor finds zero pages and nothing renders. An implicit
-  synthetic page would make these renderable (see backlog).
+  their PTX **directly under BDT with no BPG/EPG page brackets** —
+  and no positioning at all (pure TRN chains), so content is flowed
+  onto implicit pages like a text dump. `large_ibm273.afp` is "Hello
+  World" repeated in cp273; it renders as mojibake until MCF code-page
+  mapping lands (see backlog).
 - Only `sample1_health/01_Health_Coverage.afp` exercises the full
   render path (1 page, 306 text runs, MDR-mapped TrueType fonts,
   JPEG logo in an object container). There is **no real multi-page
@@ -183,14 +185,15 @@ Milestones:
 
 Carried over from build sessions, roughly in priority order:
 
-- **Implicit page for unbracketed PTX** — `perf_ptx.afp` and
-  `large_ibm273.afp` put PTX directly under BDT; collect those into a
-  synthetic default page so they render. Needs a run cap (perf file
-  has 65k PTX) to keep the SVG manageable.
-- **Run-level highlighting** — inspector rows and rendered content are
-  linked per *page*; next step is per *field*: click a PTX row and
-  flash the exact text runs it produced (runs would carry their source
-  field offset).
+- ✅ **Implicit page for unbracketed PTX** — loose PTX now flows onto
+  implicit pages: wrapped at the page width, paginated into
+  letter-height chunks, capped at `MAX_RUNS_PER_PAGE` (5000) runs with
+  a truncation note (perf_ptx.afp carries 65k PTX fields).
+- ✅ **Run-level highlighting** — text runs and rules carry the offset
+  of the PTX field that produced them (`data-src` in the SVG);
+  clicking an inspector row flashes exactly that content (text
+  recolors, rules/images get an outline so background fills don't
+  flood the page).
 - **Code pages via MCF** — TRN decoding assumes cp500/UTF-16BE;
   mainframe files use other EBCDIC code pages (`large_ibm273.afp` is
   the IBM273 German fixture to test against).

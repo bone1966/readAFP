@@ -45,6 +45,11 @@ def create_app() -> Flask:
         fields = _field_rows(parsed)
         summary = Counter(row["name"] for row in fields)
         pages = extract_pages(parsed)
+        bracketed = sum(1 for row in fields if row["sf_id"] == "0xD3A8AF")
+        if len(pages) > bracketed:  # loose PTX landed on implicit page(s)
+            for row in fields:
+                if row["page"] is None and row["sf_id"] == "0xD3EE9B":
+                    row["page"] = bracketed
         return render_template(
             "index.html",
             fields=fields,

@@ -174,6 +174,60 @@ def test_extract_pages_multipage_document() -> None:
     assert pages[1].texts[0].x == 0x64 and pages[1].texts[0].y == 0xC8
 
 
+def test_unbracketed_ptx_lands_on_implicit_page() -> None:
+    ptx = bytes.fromhex("2bd3" "04c70064" "04d300c8") + bytes(
+        [2 + 5, 0xDA]
+    ) + "Loose".encode("cp500")
+    doc = (
+        _sf(0xD3A8A8, b"\x00" * 8)
+        + _sf(0xD3EE9B, ptx)
+        + _sf(0xD3A9A8, b"\x00" * 8)
+    )
+    pages = extract_pages(list(iter_fields(doc)))
+    assert len(pages) == 1
+    assert pages[0].texts[0].text == "Loose"
+
+
+def test_implicit_page_corpus_large_ibm273() -> None:
+    sample = TESTDATA / "alpheus-corpus" / "large_ibm273.afp"
+    if not sample.exists():
+        pytest.skip("test corpus not present")
+    pages = extract_pages(parse_file(str(sample)))
+    # Unpositioned text flows, wraps at the page width and paginates.
+    assert len(pages) > 1
+    assert all(p.width == 12240 for p in pages)
+    assert pages[0].texts
+    assert all(0 <= r.y <= pages[0].height for r in pages[0].texts)
+
+
+def test_run_cap_marks_page_truncated() -> None:
+    from readafp.ptoca import MAX_RUNS_PER_PAGE
+
+    one_trn = bytes([2 + 2, 0xDB]) + "AB".encode("cp500")  # chained TRN
+    ptx = bytes.fromhex("2bd3") + one_trn * (MAX_RUNS_PER_PAGE + 10)
+    doc = (
+        _sf(0xD3A8A8, b"\x00" * 8)
+        + _sf(0xD3EE9B, ptx)
+        + _sf(0xD3A9A8, b"\x00" * 8)
+    )
+    pages = extract_pages(list(iter_fields(doc)))
+    assert sum(len(p.texts) for p in pages) == MAX_RUNS_PER_PAGE
+    assert pages[-1].truncated
+    assert "[render truncated" in page_to_svg(pages[-1])
+
+
+def test_runs_carry_source_field_offset() -> None:
+    if not HEALTH_SAMPLE.exists():
+        pytest.skip("test corpus not present")
+    page = extract_pages(parse_file(str(HEALTH_SAMPLE)))[0]
+    # All text comes from the second PTX (offset 6559); the border and
+    # band rules come from the first (offset 6039).
+    assert {r.src for r in page.texts} == {6559}
+    assert 6039 in {r.src for r in page.rules}
+    svg = page_to_svg(page)
+    assert 'data-src="6559"' in svg and 'data-src="6039"' in svg
+
+
 def test_extract_pages_empty_document() -> None:
     sample = TESTDATA / "alpheus-corpus" / "minimal.afp"
     if not sample.exists():

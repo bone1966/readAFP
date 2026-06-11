@@ -11,7 +11,7 @@ import logging
 from typing import List
 from xml.sax.saxutils import escape, quoteattr
 
-from readafp.ptoca import Page
+from readafp.ptoca import MAX_RUNS_PER_PAGE, Page
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +37,9 @@ def page_to_svg(page: Page) -> str:
             x, w = x + w, -w
         if h < 0:
             y, h = y + h, -h
+        src = f' data-src="{rule.src}"' if rule.src is not None else ""
         parts.append(
-            f'<rect x="{x}" y="{y}" width="{w}" height="{h}" '
+            f'<rect x="{x}" y="{y}" width="{w}" height="{h}"{src} '
             f'fill={quoteattr(rule.color)}/>'
         )
     for img in page.images:
@@ -55,10 +56,17 @@ def page_to_svg(page: Page) -> str:
             if run.font_family != "Arial"
             else ""
         )
+        src = f' data-src="{run.src}"' if run.src is not None else ""
         parts.append(
             f'<text x="{run.x}" y="{run.y}" font-size="{run.font_size}"'
-            f"{family}{weight} "
+            f"{family}{weight}{src} "
             f'fill={quoteattr(run.color)}>{escape(run.text)}</text>'
+        )
+    if page.truncated:
+        parts.append(
+            f'<text x="60" y="{page.height - 80}" font-size="200" '
+            f'fill="#9aa0b8">[render truncated: page content exceeds '
+            f"{MAX_RUNS_PER_PAGE} runs]</text>"
         )
     parts.append("</svg>")
     return "".join(parts)

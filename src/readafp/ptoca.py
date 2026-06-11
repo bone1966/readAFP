@@ -69,6 +69,10 @@ DEFAULT_COLOR = "#000000"
 DEFAULT_FONT_SIZE = 240
 _CHAR_ADVANCE_RATIO = 0.55
 
+# Cap content per page so pathological files (perf_ptx.afp carries 65k
+# PTX fields in one unbracketed document) produce a bounded SVG.
+MAX_RUNS_PER_PAGE = 5000
+
 
 @dataclass
 class ControlSequence:
@@ -103,6 +107,7 @@ class TextRun:
     font_size: int = DEFAULT_FONT_SIZE
     font_family: str = "Arial"
     font_weight: str = "normal"
+    src: Optional[int] = None  # offset of the PTX field that produced it
 
 
 @dataclass
@@ -127,6 +132,7 @@ class Rule:
     thickness: int
     axis: str  # "I" (horizontal) or "B" (vertical)
     color: str = DEFAULT_COLOR
+    src: Optional[int] = None  # offset of the PTX field that produced it
 
 
 @dataclass
@@ -139,6 +145,7 @@ class Page:
     texts: List[TextRun] = field(default_factory=list)
     rules: List[Rule] = field(default_factory=list)
     images: List[ImageRef] = field(default_factory=list)
+    truncated: bool = False  # content dropped after MAX_RUNS_PER_PAGE
 
     @property
     def plain_text(self) -> str:
@@ -284,6 +291,11 @@ class _TextState:
         self.baseline_increment = 0
         self.color = DEFAULT_COLOR
         self.font_id: Optional[int] = None
+        self.field_offset: Optional[int] = None
+        # For implicit pages (no BPG/EPG): flow text and wrap at this
+        # inline position, like a text dump, instead of letting runs
+        # without explicit moves pile up on one endless line.
+        self.wrap_width: Optional[int] = None
         # Keep the caller's dict: it may be filled by MDRs seen later
         # (the page's AEG comes after BPG).
         self.fonts = fonts if fonts is not None else {}
@@ -318,37 +330,55 @@ class _TextState:
             text = _decode_trn(p)
             info = self.fonts.get(self.font_id, FontInfo())
             size = info.size or DEFAULT_FONT_SIZE
+            if (
+                self.wrap_width is not None
+                and self.i > 0
+                and self.i + len(text) * size * _CHAR_ADVANCE_RATIO
+                > self.wrap_width
+            ):
+                self.i = 240
+                self.b += int(size * 1.4)
             if text.strip():
-                page.texts.append(
-                    TextRun(
-                        x=self.i,
-                        y=self.b,
-                        text=text,
-                        color=self.color,
-                        font_id=self.font_id,
-                        font_size=size,
-                        font_family=info.family,
-                        font_weight=info.weight,
+                if len(page.texts) < MAX_RUNS_PER_PAGE:
+                    page.texts.append(
+                        TextRun(
+                            x=self.i,
+                            y=self.b,
+                            text=text,
+                            color=self.color,
+                            font_id=self.font_id,
+                            font_size=size,
+                            font_family=info.family,
+                            font_weight=info.weight,
+                            src=self.field_offset,
+                        )
                     )
-                )
+                else:
+                    page.truncated = True
             self.i += int(len(text) * size * _CHAR_ADVANCE_RATIO)
         elif t == 0xE4 and len(p) >= 2:  # DIR: horizontal rule
-            page.rules.append(self._rule(p, axis="I"))
+            self._add_rule(page, p, axis="I")
         elif t == 0xE6 and len(p) >= 2:  # DBR: vertical rule
-            page.rules.append(self._rule(p, axis="B"))
+            self._add_rule(page, p, axis="B")
 
-    def _rule(self, p: bytes, axis: str) -> Rule:
+    def _add_rule(self, page: Page, p: bytes, axis: str) -> None:
+        if len(page.rules) >= MAX_RUNS_PER_PAGE:
+            page.truncated = True
+            return
         length = _s16(p)
         thickness = _s16(p, 2) if len(p) >= 4 else 20
         if abs(thickness) < 10:  # keep hairlines visible once scaled
             thickness = 10 if thickness >= 0 else -10
-        return Rule(
-            x=self.i,
-            y=self.b,
-            length=length,
-            thickness=thickness,
-            axis=axis,
-            color=self.color,
+        page.rules.append(
+            Rule(
+                x=self.i,
+                y=self.b,
+                length=length,
+                thickness=thickness,
+                axis=axis,
+                color=self.color,
+                src=self.field_offset,
+            )
         )
 
 
@@ -437,12 +467,18 @@ def _parse_pgd(data: bytes) -> Tuple[int, int, int]:
 def extract_pages(fields: List[StructuredField]) -> List[Page]:
     """Walk a parsed document and build a rough page model per BPG...EPG.
 
+    PTX fields outside any page bracket (some synthetic files put text
+    directly under BDT) are collected onto one implicit page, appended
+    after the bracketed pages and grown to fit its content.
+
     This is a first-pass renderer's view: text runs and rules with
     positions and colors, default font metrics, no IOCA/GOCA content yet.
     """
     pages: List[Page] = []
     current: Optional[Page] = None
     state: Optional[_TextState] = None
+    implicit: Optional[Page] = None
+    implicit_state: Optional[_TextState] = None
     pgd_default: Optional[Tuple[int, int, int]] = None
     fonts: Dict[int, FontInfo] = {}
     resources: Dict[str, bytes] = {}
@@ -477,7 +513,54 @@ def extract_pages(fields: List[StructuredField]) -> List[Page]:
                 current.width, current.height, current.units_per_inch = parsed
             else:
                 pgd_default = parsed
-        elif f.sf_id == 0xD3EE9B and current is not None and state is not None:
+        elif f.sf_id == 0xD3EE9B:  # PTX
+            if current is None:
+                if implicit is None:
+                    implicit = Page()
+                    if pgd_default:
+                        (
+                            implicit.width,
+                            implicit.height,
+                            implicit.units_per_inch,
+                        ) = pgd_default
+                    implicit_state = _TextState(fonts)
+                    implicit_state.wrap_width = implicit.width - 480
+                    implicit_state.i = 240
+                    implicit_state.b = 320
+                target, target_state = implicit, implicit_state
+            else:
+                target, target_state = current, state
+            target_state.field_offset = f.offset
             for cs in iter_control_sequences(f.data):
-                state.apply(cs, current)
+                target_state.apply(cs, target)
+
+    if implicit is not None and (implicit.texts or implicit.rules):
+        _estimate_font_sizes(implicit, fonts)
+        pages.extend(_paginate_implicit(implicit))
     return pages
+
+
+def _paginate_implicit(page: Page) -> List[Page]:
+    """Split an implicit page's flowed content into page-height chunks."""
+    xs = [r.x for r in page.texts] + [r.x for r in page.rules]
+    if xs:  # explicitly positioned content may still exceed the width
+        page.width = max(page.width, max(xs) + 6 * DEFAULT_FONT_SIZE)
+    usable = page.height - 320
+    chunks: Dict[int, Page] = {}
+    for kind in ("texts", "rules"):
+        for item in getattr(page, kind):
+            idx = item.y // usable
+            chunk = chunks.setdefault(
+                idx,
+                Page(
+                    width=page.width,
+                    height=page.height,
+                    units_per_inch=page.units_per_inch,
+                ),
+            )
+            item.y -= idx * usable
+            getattr(chunk, kind).append(item)
+    ordered = [chunks[idx] for idx in sorted(chunks)]
+    if ordered and page.truncated:
+        ordered[-1].truncated = True
+    return ordered

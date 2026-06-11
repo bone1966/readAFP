@@ -90,6 +90,11 @@
       width: 100%; max-width: 850px;
     }
     .sheet svg { display: block; width: 100%; height: auto; }
+    .sheet text.run-flash { fill: #e91e63 !important; animation: runflash 0.9s ease-in-out 2; }
+    .sheet rect.run-flash, .sheet image.run-flash {
+      stroke: #e91e63; stroke-width: 30; animation: runflash 0.9s ease-in-out 2;
+    }
+    @keyframes runflash { 50% { opacity: 0.2; } }
     .render-note { color: #aab0c6; font-size: 0.8rem; }
   </style>
 </head>
@@ -130,7 +135,7 @@
         <tr><th>Offset</th><th>ID</th><th>Structured field</th><th>Name</th>
             <th>Data len</th><th>Data preview (hex)</th></tr>
         {% for f in fields %}
-        <tr data-name="{{ f.name }}"{% if f.page is not none %} data-page="{{ f.page }}"{% endif %}>
+        <tr data-name="{{ f.name }}" data-offset="{{ f.offset }}"{% if f.page is not none %} data-page="{{ f.page }}"{% endif %}>
           <td class="num">{{ f.offset }}</td>
           <td class="hex">{{ f.sf_id }}</td>
           <td class="sf-name" style="padding-left: {{ 12 + f.depth * 18 }}px">{{ f.name }}</td>
@@ -191,14 +196,19 @@
       showPage(0, false);
     }
 
-    // Inspector row click -> jump the render to that field's page.
+    // Inspector row click -> jump the render to that field's page and
+    // flash the exact content (text runs, rules) that field produced.
     document.querySelectorAll("#sf-table tr[data-page]").forEach((tr) => {
       tr.addEventListener("click", () => {
         document.querySelectorAll("#sf-table tr.selected")
           .forEach((t) => t.classList.remove("selected"));
         tr.classList.add("selected");
         const p = parseInt(tr.dataset.page, 10);
-        if (p < svgs.length) showPage(p, false);
+        if (p < svgs.length) {
+          showPage(p, false); // resets the sheet markup, clearing old flashes
+          sheet.querySelectorAll(`[data-src="${tr.dataset.offset}"]`)
+            .forEach((el) => el.classList.add("run-flash"));
+        }
       });
     });
 
