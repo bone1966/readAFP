@@ -17,6 +17,16 @@ MAX_UPLOAD_BYTES = 64 * 1024 * 1024
 # once its element budget is spent, whichever comes first.
 MAX_RENDER_PAGES = 500
 
+# EBCDIC code pages offered for text decoding (manual override until
+# MCF label support lands). Keys are Python codec names.
+CODEPAGES = [
+    ("cp500", "cp500 — international (default)"),
+    ("cp037", "cp037 — US / Canada"),
+    ("cp273", "cp273 — Germany / Austria"),
+    ("cp1047", "cp1047 — Latin-1 open systems"),
+    ("cp1141", "cp1141 — Germany (euro)"),
+]
+
 
 def create_app() -> Flask:
     """Build the Flask application."""
@@ -25,14 +35,27 @@ def create_app() -> Flask:
 
     @app.get("/")
     def index() -> str:
-        return render_template("index.html", fields=None, error=None)
+        return render_template(
+            "index.html",
+            fields=None,
+            error=None,
+            codepages=CODEPAGES,
+            codepage="cp500",
+        )
 
     @app.post("/inspect")
     def inspect() -> str:
+        codepage = request.form.get("codepage", "cp500")
+        if codepage not in {name for name, _ in CODEPAGES}:
+            codepage = "cp500"
         upload = request.files.get("afpfile")
         if upload is None or not upload.filename:
             return render_template(
-                "index.html", fields=None, error="Choose an AFP file first."
+                "index.html",
+                fields=None,
+                error="Choose an AFP file first.",
+                codepages=CODEPAGES,
+                codepage=codepage,
             )
         data = upload.read()
         try:
@@ -43,15 +66,22 @@ def create_app() -> Flask:
                 "index.html",
                 fields=None,
                 error=f"Not a valid AFP file: {exc}",
+                codepages=CODEPAGES,
+                codepage=codepage,
             )
         fields = _field_rows(parsed)
         summary = Counter(row["name"] for row in fields)
-        pages = extract_pages(parsed)
+        pages = extract_pages(parsed, codepage)
         bracketed = sum(1 for row in fields if row["sf_id"] == "0xD3A8AF")
-        if len(pages) > bracketed:  # loose PTX landed on implicit page(s)
+        if len(pages) > bracketed:  # loose PTX flowed onto implicit pages
+            src_to_page: dict = {}
+            for idx, page in enumerate(pages):
+                for item in page.texts + page.rules:
+                    if item.src is not None:
+                        src_to_page.setdefault(item.src, idx)
             for row in fields:
                 if row["page"] is None and row["sf_id"] == "0xD3EE9B":
-                    row["page"] = bracketed
+                    row["page"] = src_to_page.get(row["offset"])
         return render_template(
             "index.html",
             fields=fields,
@@ -61,6 +91,8 @@ def create_app() -> Flask:
             summary=summary.most_common(),
             page_svgs=pages_to_svgs(pages, MAX_RENDER_PAGES),
             page_total=len(pages),
+            codepages=CODEPAGES,
+            codepage=codepage,
         )
 
     return app

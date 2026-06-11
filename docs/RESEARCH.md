@@ -194,9 +194,12 @@ Carried over from build sessions, roughly in priority order:
   clicking an inspector row flashes exactly that content (text
   recolors, rules/images get an outline so background fills don't
   flood the page).
-- **Code pages via MCF** — TRN decoding assumes cp500/UTF-16BE;
-  mainframe files use other EBCDIC code pages (`large_ibm273.afp` is
-  the IBM273 German fixture to test against).
+- 🔶 **Code pages via MCF** — manual override done: a code-page
+  dropdown (cp500/cp037/cp273/cp1047/cp1141) threads through to TRN
+  decoding; `large_ibm273.afp` + cp273 now reads "Hällö Wörld" (the
+  fixture's text is German, plus a deliberate full-byte-range stress
+  section that correctly renders as symbols). Still to do: honor the
+  MCF/CGCSGID label automatically when the file declares one.
 
   *In plain words:* computers store letters as numbers, and a code
   page is the decoder ring that turns numbers back into letters. IBM

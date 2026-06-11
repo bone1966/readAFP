@@ -193,12 +193,12 @@ def iter_control_sequences(data: bytes) -> Iterator[ControlSequence]:
         pos += length
 
 
-def _decode_trn(params: bytes) -> str:
+def _decode_trn(params: bytes, codepage: str = "cp500") -> str:
     """Decode TRN text bytes: UTF-16BE for TrueType flows, else EBCDIC.
 
-    Without the font's code page (mapped via MCF/MDR triplets, milestone 2)
-    we use a heuristic: UTF-16BE text over Latin scripts has a zero high
-    byte for nearly every character.
+    ``codepage`` selects the EBCDIC decoder ring (user override until
+    MCF label support lands). The UTF-16BE heuristic stays: text over
+    Latin scripts has a zero high byte for nearly every character.
     """
     if len(params) >= 2 and len(params) % 2 == 0:
         high_zeros = sum(1 for b in params[0::2] if b == 0)
@@ -208,8 +208,8 @@ def _decode_trn(params: bytes) -> str:
             except UnicodeDecodeError:
                 pass
     try:
-        return params.decode("cp500")
-    except UnicodeDecodeError:
+        return params.decode(codepage)
+    except (UnicodeDecodeError, LookupError):
         return params.decode("cp500", errors="replace")
 
 
@@ -284,7 +284,12 @@ def _sec_color(params: bytes) -> Optional[str]:
 class _TextState:
     """Mutable PTOCA interpreter state, carried across PTX fields of a page."""
 
-    def __init__(self, fonts: Optional[Dict[int, FontInfo]] = None) -> None:
+    def __init__(
+        self,
+        fonts: Optional[Dict[int, FontInfo]] = None,
+        codepage: str = "cp500",
+    ) -> None:
+        self.codepage = codepage
         self.i = 0
         self.b = 0
         self.inline_margin = 0
@@ -327,7 +332,7 @@ class _TextState:
             self.i = 0
             self.b = 0
         elif t == 0xDA:  # TRN
-            text = _decode_trn(p)
+            text = _decode_trn(p, self.codepage)
             info = self.fonts.get(self.font_id, FontInfo())
             size = info.size or DEFAULT_FONT_SIZE
             if (
@@ -464,7 +469,9 @@ def _parse_pgd(data: bytes) -> Tuple[int, int, int]:
     return width, height, units_per_inch
 
 
-def extract_pages(fields: List[StructuredField]) -> List[Page]:
+def extract_pages(
+    fields: List[StructuredField], codepage: str = "cp500"
+) -> List[Page]:
     """Walk a parsed document and build a rough page model per BPG...EPG.
 
     PTX fields outside any page bracket (some synthetic files put text
@@ -499,7 +506,7 @@ def extract_pages(fields: List[StructuredField]) -> List[Page]:
             current = Page()
             if pgd_default:
                 current.width, current.height, current.units_per_inch = pgd_default
-            state = _TextState(fonts)
+            state = _TextState(fonts, codepage)
         elif f.sf_id == 0xD3A9AF:  # EPG
             if current is not None:
                 _estimate_font_sizes(current, fonts)
@@ -523,7 +530,7 @@ def extract_pages(fields: List[StructuredField]) -> List[Page]:
                             implicit.height,
                             implicit.units_per_inch,
                         ) = pgd_default
-                    implicit_state = _TextState(fonts)
+                    implicit_state = _TextState(fonts, codepage)
                     implicit_state.wrap_width = implicit.width - 480
                     implicit_state.i = 240
                     implicit_state.b = 320

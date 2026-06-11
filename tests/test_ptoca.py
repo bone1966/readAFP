@@ -188,6 +188,19 @@ def test_unbracketed_ptx_lands_on_implicit_page() -> None:
     assert pages[0].texts[0].text == "Loose"
 
 
+def test_codepage_override_decodes_ibm273() -> None:
+    sample = TESTDATA / "alpheus-corpus" / "large_ibm273.afp"
+    if not sample.exists():
+        pytest.skip("test corpus not present")
+    fields = parse_file(str(sample))
+    # The fixture's text is German: "Hällö Wörld" in cp273. cp500 maps
+    # those bytes to {/¦ instead.
+    garbled = extract_pages(fields, codepage="cp500")[0].texts[0].text
+    assert "H{ll" in garbled
+    readable = extract_pages(fields, codepage="cp273")[0].texts[0].text
+    assert "Hällö Wörld" in readable
+
+
 def test_implicit_page_corpus_large_ibm273() -> None:
     sample = TESTDATA / "alpheus-corpus" / "large_ibm273.afp"
     if not sample.exists():

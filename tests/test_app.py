@@ -58,6 +58,25 @@ def test_inspect_endpoint_renders_all_implicit_pages() -> None:
     # All 109 flowed pages fit the content budget, so go-to-last works.
     assert 'max="109"' in html
     assert "of 109</span>" in html
+    # Loose PTX rows map to the flowed page their text landed on (each
+    # PTX spans ~2 pages and starts on an even one), not all to page 1.
+    assert 'data-page="2"' in html and 'data-page="50"' in html
+
+
+def test_inspect_endpoint_codepage_override() -> None:
+    sample = TESTDATA / "alpheus-corpus" / "large_ibm273.afp"
+    if not sample.exists():
+        pytest.skip("test corpus not present")
+    client = create_app().test_client()
+    with sample.open("rb") as handle:
+        response = client.post(
+            "/inspect",
+            data={"afpfile": (handle, sample.name), "codepage": "cp273"},
+            content_type="multipart/form-data",
+        )
+    html = response.get_data(as_text=True)
+    assert "Hällö Wörld" in html  # the fixture's German text, decoded
+    assert 'value="cp273" selected' in html
 
 
 def test_inspect_endpoint_rejects_non_afp() -> None:

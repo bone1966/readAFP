@@ -23,6 +23,10 @@
     .brand { font-size: 1.15rem; font-weight: 700; white-space: nowrap; }
     form { display: flex; gap: 8px; align-items: center; margin: 0; }
     input[type=file] { color: var(--dim); max-width: 240px; }
+    select {
+      background: var(--card); color: var(--text); font-size: 0.85rem;
+      border: 1px solid var(--border); border-radius: 6px; padding: 4px 6px;
+    }
     button {
       padding: 5px 14px; border: none; border-radius: 8px; cursor: pointer;
       background: var(--accent); color: #08222a; font-weight: 600; font-size: 0.9rem;
@@ -111,6 +115,11 @@
     <span class="brand" title="Upload an AFP (Advanced Function Presentation) file to inspect its MO:DCA structure.">readAFP 🔍</span>
     <form action="/inspect" method="post" enctype="multipart/form-data">
       <input type="file" name="afpfile" accept=".afp,.afpds,.list3820">
+      <select name="codepage" title="EBCDIC code page used to decode text (when the file doesn't say)">
+        {% for value, label in codepages %}
+        <option value="{{ value }}"{{ " selected" if value == codepage }}>{{ label }}</option>
+        {% endfor %}
+      </select>
       <button type="submit">Inspect</button>
     </form>
     {% if fields %}
