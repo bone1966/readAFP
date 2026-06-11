@@ -88,6 +88,7 @@
     .split.render-only #inspect-pane, .split.render-only #divider { display: none; }
     .page-nav { display: flex; align-items: center; gap: 8px; color: #cdd2e4; }
     .page-nav button { padding: 4px 12px; background: var(--card); color: var(--text); }
+    body.dropping { outline: 3px dashed var(--accent); outline-offset: -3px; }
     .page-nav button:disabled { opacity: 0.35; cursor: default; }
     #page-input {
       width: 60px; padding: 3px 6px; text-align: center;
@@ -175,6 +176,8 @@
           of {{ page_svgs|length }}</span>
         <button type="button" id="next-page" title="Next page">▶</button>
         <button type="button" id="last-page" title="Last page">⏭</button>
+        <button type="button" id="copy-text" title="Copy this page's text">⧉ Copy text</button>
+        <button type="button" id="download-text" title="Download all pages as .txt">⬇ .txt</button>
         {% if page_total > page_svgs|length %}
         <span class="render-note">(first {{ page_svgs|length }} of {{ page_total }} rendered)</span>
         {% endif %}
@@ -213,6 +216,28 @@
         if (anchor) anchor.scrollIntoView({ block: "center", behavior: "smooth" });
       }
     }
+    // Per-page plain text: copy current page, download all as .txt.
+    const pageTexts = [{% for t in page_texts or [] %}{{ t|tojson }}{{ "," if not loop.last }}{% endfor %}];
+    const copyBtn = document.getElementById("copy-text");
+    const dlBtn = document.getElementById("download-text");
+    if (copyBtn && pageTexts.length) {
+      copyBtn.addEventListener("click", async () => {
+        await navigator.clipboard.writeText(pageTexts[pageIdx] || "");
+        copyBtn.textContent = "✓ Copied";
+        setTimeout(() => { copyBtn.textContent = "⧉ Copy text"; }, 1200);
+      });
+      dlBtn.addEventListener("click", () => {
+        const blob = new Blob(
+          [pageTexts.join("\n\n----- page break -----\n\n")],
+          { type: "text/plain" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = {{ (filename or "afp")|tojson }} + ".txt";
+        a.click();
+        URL.revokeObjectURL(a.href);
+      });
+    }
+
     if (svgs.length) {
       firstBtn.addEventListener("click", () => showPage(0));
       prevBtn.addEventListener("click", () => showPage(pageIdx - 1));
@@ -295,5 +320,27 @@
     }
   </script>
   {% endif %}
+
+  <script>
+    // Drag-and-drop upload: drop an .afp anywhere on the page.
+    const dropInput = document.querySelector('input[type=file]');
+    const dropForm = document.querySelector("form");
+    ["dragenter", "dragover"].forEach((ev) =>
+      document.addEventListener(ev, (e) => {
+        e.preventDefault();
+        document.body.classList.add("dropping");
+      }));
+    ["dragleave", "drop"].forEach((ev) =>
+      document.addEventListener(ev, (e) => {
+        e.preventDefault();
+        document.body.classList.remove("dropping");
+      }));
+    document.addEventListener("drop", (e) => {
+      if (e.dataTransfer.files.length) {
+        dropInput.files = e.dataTransfer.files;
+        dropForm.submit();
+      }
+    });
+  </script>
 </body>
 </html>

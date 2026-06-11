@@ -41,6 +41,9 @@ def test_inspect_endpoint_links_rows_to_pages() -> None:
     assert 'data-page="0"' in html
     assert 'id="sf-table"' in html
     assert "data:image/jpeg;base64," in html  # logo made it through
+    # Plain text export: buttons present and page text embedded.
+    assert 'id="copy-text"' in html and 'id="download-text"' in html
+    assert "John Doe" in html  # plain_text joins runs in reading order
 
 
 def test_inspect_endpoint_renders_all_implicit_pages() -> None:

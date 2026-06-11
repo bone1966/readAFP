@@ -178,8 +178,10 @@ Milestones:
    embedded in the SVG. Still to do: FOCA/embedded-TrueType metrics,
    IOCA images (raw + JPEG/CCITT wrapped), GOCA vectors, BCOCA
    barcodes, text orientation (STO rotations).
-5. **Quality-of-life** — page thumbnails, search, export page as
-   PNG/PDF, drag-and-drop upload (BTB feature parity, but in browser).
+5. 🔶 **Quality-of-life** — done: drag-and-drop upload (drop an .afp
+   anywhere), copy-page-text and download-all-as-.txt buttons. Still
+   to do: page thumbnails, search, export page as PNG/PDF (BTB
+   feature parity, but in browser).
 
 ## 6. Backlog / known limitations
 

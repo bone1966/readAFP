@@ -82,6 +82,7 @@ def create_app() -> Flask:
             for row in fields:
                 if row["page"] is None and row["sf_id"] == "0xD3EE9B":
                     row["page"] = src_to_page.get(row["offset"])
+        page_svgs = pages_to_svgs(pages, MAX_RENDER_PAGES)
         return render_template(
             "index.html",
             fields=fields,
@@ -89,7 +90,8 @@ def create_app() -> Flask:
             filename=upload.filename,
             filesize=len(data),
             summary=summary.most_common(),
-            page_svgs=pages_to_svgs(pages, MAX_RENDER_PAGES),
+            page_svgs=page_svgs,
+            page_texts=[p.plain_text for p in pages[: len(page_svgs)]],
             page_total=len(pages),
             codepages=CODEPAGES,
             codepage=codepage,
