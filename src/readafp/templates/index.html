@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>readAFP — AFP file inspector</title>
+  <style>
+    :root {
+      --bg: #12141d; --panel: #1a1d29; --card: #232737; --border: #313650;
+      --text: #e4e6f0; --dim: #9aa0b8; --accent: #26c6da; --warn: #ef5350;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 24px 32px; background: var(--bg); color: var(--text);
+      font-family: "Segoe UI", system-ui, sans-serif;
+    }
+    h1 { margin: 0 0 4px; }
+    .sub { color: var(--dim); margin-bottom: 24px; }
+    form {
+      display: flex; gap: 10px; align-items: center; padding: 16px;
+      background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+      margin-bottom: 24px;
+    }
+    input[type=file] { color: var(--dim); }
+    button {
+      padding: 9px 18px; border: none; border-radius: 8px; cursor: pointer;
+      background: var(--accent); color: #08222a; font-weight: 600; font-size: 0.95rem;
+    }
+    .error {
+      background: rgba(239, 83, 80, 0.15); border: 1px solid var(--warn);
+      color: var(--warn); padding: 12px 16px; border-radius: 10px; margin-bottom: 20px;
+    }
+    .meta { color: var(--dim); margin-bottom: 16px; }
+    .layout { display: flex; gap: 20px; align-items: flex-start; }
+    table {
+      border-collapse: collapse; width: 100%; font-size: 0.85rem;
+      background: var(--panel); border-radius: 12px; overflow: hidden;
+    }
+    th, td { padding: 6px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    th { background: var(--card); color: var(--dim); position: sticky; top: 0; }
+    td.num, td.hex { font-family: Consolas, monospace; color: var(--dim); }
+    .sf-name { font-weight: 600; }
+    .token { color: var(--accent); font-family: Consolas, monospace; }
+    .summary {
+      flex-shrink: 0; width: 320px; background: var(--panel);
+      border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px;
+    }
+    .summary h3 { margin: 0 0 10px; }
+    .summary div { display: flex; justify-content: space-between; padding: 3px 0;
+      font-size: 0.85rem; }
+    .summary span:last-child { color: var(--dim); font-variant-numeric: tabular-nums; }
+  </style>
+</head>
+<body>
+  <h1>readAFP 🔍</h1>
+  <p class="sub">Upload an AFP (Advanced Function Presentation) file to inspect its MO:DCA structure.</p>
+
+  <form action="/inspect" method="post" enctype="multipart/form-data">
+    <input type="file" name="afpfile" accept=".afp,.afpds,.list3820">
+    <button type="submit">Inspect</button>
+  </form>
+
+  {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+  {% if fields %}
+  <p class="meta"><b>{{ filename }}</b> · {{ "{:,}".format(filesize) }} bytes ·
+    {{ "{:,}".format(fields|length) }} structured fields</p>
+  <div class="layout">
+    <table>
+      <tr><th>Offset</th><th>ID</th><th>Structured field</th><th>Name</th>
+          <th>Data len</th><th>Data preview (hex)</th></tr>
+      {% for f in fields %}
+      <tr>
+        <td class="num">{{ f.offset }}</td>
+        <td class="hex">{{ f.sf_id }}</td>
+        <td class="sf-name" style="padding-left: {{ 12 + f.depth * 18 }}px">{{ f.name }}</td>
+        <td class="token">{{ f.token }}</td>
+        <td class="num">{{ f.length }}</td>
+        <td class="hex">{{ f.preview }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    <div class="summary">
+      <h3>Field counts</h3>
+      {% for name, count in summary %}
+      <div><span>{{ name }}</span><span>{{ count }}</span></div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</body>
+</html>
