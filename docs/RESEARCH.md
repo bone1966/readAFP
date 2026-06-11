@@ -74,6 +74,34 @@ Key facts learned:
   Measurements are in "L-units" defined by the PGD/PTD (e.g. 1440/inch).
 - **Page geometry**: PGD gives page extents; OBD/OBP place objects.
 
+Facts verified while building the renderer (against
+`sample1_health/01_Health_Coverage.afp`):
+
+- **PTOCA rules extend in the +B/+I direction** from the current
+  position, not centered on it. Producers draw filled bands (e.g. blue
+  table headers) as thick rules and then place text *inside* the band:
+  band at B=7095 with width 480 spans 7095–7575, and the white label's
+  baseline lands at 7395. Get the direction wrong and white-on-color
+  text silently disappears against the white page.
+- **TRN text can be UTF-16BE**, not just EBCDIC — TrueType-based flows
+  encode it that way (high byte 0x00 for Latin text, an easy sniff).
+- **MDR repeating groups map everything the renderer needs about
+  fonts**: FQN triplet 0x02 type 0xDE = full font name ("Arial Bold" →
+  family + weight), triplet 0x8B byte 2-3 = point size in 1/20pt
+  (which *is* L-units at 1440/inch: 180 = 9pt, 540 = 27pt), FQN type
+  0xBE = the local id that PTX SCFL sequences select. No font files
+  needed for system fonts.
+- **Object containers can hold plain raster files**: the OCD data of
+  the health sample is a raw JFIF JPEG (the logo) — magic-byte
+  sniffing (JPEG/PNG/GIF) is enough to render it.
+- **IOB placement**: name(8) reserved(1) ObjType(1, 0x92 = object
+  container) XoaOset(3) YoaOset(3) orientation(4) XocaOset(3)
+  YocaOset(3) RefCSys(1), then triplets; triplet 0x4C (Object Area
+  Size) gives the placed extent in L-units.
+- **Colors**: SEC triplet-style params (colorspace 0x01 = RGB with
+  8/8/8 component sizes) carry exact RGB; STC has a small fixed
+  two-byte palette.
+
 Gotcha found in the corpus: anything not starting `0x5A` isn't a
 (document-form) AFP stream. Mainframe-native files can also be wrapped
 in record formats (RDW length prefixes) instead of 0x5A — worth
@@ -102,12 +130,28 @@ Useful link hub: Apache FOP "AFP Resources" wiki
   TrueType fonts, **plus the same document as PDF and HTML** for
   ground-truth comparison (from afpworld.com).
 - `alpheus-corpus/` — 138 real AFP files from the Alpheus test suite:
-  the AFP reference manuals themselves rendered as AFP (text-heavy,
-  ~66k PTX fields), `minimal.afp`, `perf_ptx.afp` (performance),
-  `large_ibm273.afp` (German EBCDIC code page), plus per-architecture
-  folders (GOCA, BCOCA, IOCA, line data, …).
+  `minimal.afp`, `perf_ptx.afp` (performance), `large_ibm273.afp`
+  (German EBCDIC code page), plus per-architecture folders (GOCA,
+  BCOCA, IOCA, line data, …).
 - Note: 7 files under `alpheus-corpus/external/` are saved HTML error
   pages, not AFP — keep as negative-test fixtures.
+
+What the corpus actually contains (learned while building the
+renderer — all 138 files parse, but render coverage is thin):
+
+- The per-architecture "reference" folders are mostly **empty shells**:
+  BDT/EDT brackets with no pages or content (e.g.
+  `modca-reference-10/Chapter_1.afp` is just BDT+EDT). Good parser
+  fixtures, useless for rendering.
+- `perf_ptx.afp` (65,536 PTX) and `large_ibm273.afp` (444 PTX) carry
+  their PTX **directly under BDT with no BPG/EPG page brackets**, so
+  the page extractor finds zero pages and nothing renders. An implicit
+  synthetic page would make these renderable (see backlog).
+- Only `sample1_health/01_Health_Coverage.afp` exercises the full
+  render path (1 page, 306 text runs, MDR-mapped TrueType fonts,
+  JPEG logo in an object container). There is **no real multi-page
+  file** in the corpus; multi-page behaviour is covered by a synthetic
+  document in `tests/test_ptoca.py`.
 
 ## 5. Web app plan
 
@@ -134,3 +178,34 @@ Milestones:
    barcodes, text orientation (STO rotations).
 5. **Quality-of-life** — page thumbnails, search, export page as
    PNG/PDF, drag-and-drop upload (BTB feature parity, but in browser).
+
+## 6. Backlog / known limitations
+
+Carried over from build sessions, roughly in priority order:
+
+- **Implicit page for unbracketed PTX** — `perf_ptx.afp` and
+  `large_ibm273.afp` put PTX directly under BDT; collect those into a
+  synthetic default page so they render. Needs a run cap (perf file
+  has 65k PTX) to keep the SVG manageable.
+- **Run-level highlighting** — inspector rows and rendered content are
+  linked per *page*; next step is per *field*: click a PTX row and
+  flash the exact text runs it produced (runs would carry their source
+  field offset).
+- **Code pages via MCF** — TRN decoding assumes cp500/UTF-16BE;
+  mainframe files use other EBCDIC code pages (`large_ibm273.afp` is
+  the IBM273 German fixture to test against).
+- **Triplet detail view** — `iter_triplets()` exists; the inspector
+  should decode and show triplets per field instead of a hex preview.
+- **IOCA / GOCA / BCOCA objects** — images beyond object containers
+  (IOCA raw + JPEG/CCITT wrapped), vector graphics, barcodes.
+- **Font metrics** — embedded TrueType (in object containers) and FOCA
+  raster fonts are ignored; system-font substitution can misplace
+  advance widths. Spacing-based size estimation remains the fallback
+  when no MDR declares sizes.
+- **Rotated text** — STO orientations other than 0°/90° are treated as
+  0°; rotated pages will render wrong.
+- **RDW-wrapped streams** — mainframe record-format AFP (length
+  prefixes instead of bare 0x5A stream) isn't detected yet.
+- **Render cap** — only the first 50 pages are rendered
+  (`MAX_RENDER_PAGES` in `app.py`); fine until a real multi-hundred
+  page file shows up.

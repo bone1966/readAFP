@@ -4,10 +4,26 @@ A web app for reading AFP (Advanced Function Presentation) files.
 
 Current state: **inspector + first-pass renderer** — upload an AFP file
 and see its full MO:DCA structure as a nested tree (field IDs, EBCDIC
-token names, sizes, hex previews, per-type counts) side by side with a
-rough SVG render of each page (PTOCA text runs, rules and colors in a
-substitute font; images/graphics not yet drawn). The split view is
-resizable, and either pane can be shown on its own.
+token names, sizes, hex previews, per-type counts) side by side with an
+SVG render of each page. The split view is resizable, either pane can
+be shown on its own, and the panes are linked: clicking a field jumps
+the render to its page, paging the render scrolls the inspector, and
+field counts filter the table.
+
+## What renders today (and what doesn't)
+
+Works: PTOCA text runs with positions and colors, fonts mapped from MDR
+(family/weight/size, e.g. bold and headings come out right), rules
+(lines, bands, table borders), and object-container images (JPEG, PNG,
+GIF placed via IOB) — enough to closely reproduce a modern
+TrueType-based AFP like `testdata/sample1_health/`.
+
+Not yet: FOCA raster / embedded TrueType font metrics, IOCA image
+objects, GOCA vector graphics, BCOCA barcodes, rotated text (STO),
+EBCDIC code-page selection via MCF (cp500 assumed), and documents that
+carry PTX outside BPG/EPG page brackets (these show zero pages — see
+the corpus notes and backlog in
+[docs/RESEARCH.md](docs/RESEARCH.md)).
 
 ## Run
 
