@@ -106,6 +106,18 @@ class TextRun:
 
 
 @dataclass
+class ImageRef:
+    """A raster image placed on a page, in page L-units."""
+
+    x: int
+    y: int
+    width: int
+    height: int
+    mime: str
+    data: bytes
+
+
+@dataclass
 class Rule:
     """A solid rule (line) on a page, in page L-units."""
 
@@ -126,6 +138,7 @@ class Page:
     units_per_inch: int = 1440
     texts: List[TextRun] = field(default_factory=list)
     rules: List[Rule] = field(default_factory=list)
+    images: List[ImageRef] = field(default_factory=list)
 
     @property
     def plain_text(self) -> str:
@@ -365,6 +378,52 @@ def _estimate_font_sizes(page: Page, known_fonts: Dict[int, FontInfo]) -> None:
             run.font_size = max(80, min(1200, int(median / 0.52)))
 
 
+_IMAGE_MAGICS = (
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"\x89PNG", "image/png"),
+    (b"GIF8", "image/gif"),
+)
+
+
+def _sniff_image(data: bytes) -> Optional[str]:
+    """Return the MIME type if the bytes look like a known raster format."""
+    for magic, mime in _IMAGE_MAGICS:
+        if data.startswith(magic):
+            return mime
+    return None
+
+
+def _parse_iob(data: bytes, resources: Dict[str, bytes]) -> Optional[ImageRef]:
+    """Build an ImageRef from an IOB (Include Object) field, if renderable.
+
+    IOB layout: name(8) reserved(1) ObjType(1) XoaOset(3) YoaOset(3)
+    orientation(4) XocaOset(3) YocaOset(3) RefCSys(1), then triplets —
+    of which 0x4C (Object Area Size) carries the placed extent.
+    """
+    if len(data) < 27:
+        return None
+    try:
+        name = data[:8].decode("cp500").strip()
+    except UnicodeDecodeError:
+        return None
+    blob = resources.get(name)
+    if blob is None:
+        return None
+    mime = _sniff_image(blob)
+    if mime is None:
+        return None
+    x = int.from_bytes(data[10:13], "big", signed=True)
+    y = int.from_bytes(data[13:16], "big", signed=True)
+    width = height = 0
+    for tid, tdata in iter_triplets(data[27:]):
+        if tid == 0x4C and len(tdata) >= 7:  # Object Area Size
+            width = int.from_bytes(tdata[1:4], "big")
+            height = int.from_bytes(tdata[4:7], "big")
+    if width <= 0 or height <= 0:
+        return None
+    return ImageRef(x=x, y=y, width=width, height=height, mime=mime, data=blob)
+
+
 def _parse_pgd(data: bytes) -> Tuple[int, int, int]:
     """Return (width, height, units_per_inch) from PGD field data."""
     # XpgBase(1) YpgBase(1) XpgUnits(2) YpgUnits(2) XpgSize(3) YpgSize(3)
@@ -386,9 +445,21 @@ def extract_pages(fields: List[StructuredField]) -> List[Page]:
     state: Optional[_TextState] = None
     pgd_default: Optional[Tuple[int, int, int]] = None
     fonts: Dict[int, FontInfo] = {}
+    resources: Dict[str, bytes] = {}
+    container: Optional[str] = None
 
     for f in fields:
-        if f.sf_id == 0xD3A8AF:  # BPG
+        if f.sf_id == 0xD3A892:  # BOC opens an object container resource
+            container = f.token_name
+        elif f.sf_id == 0xD3A992:  # EOC
+            container = None
+        elif f.sf_id == 0xD3EE92 and container:  # OCD carries its bytes
+            resources[container] = resources.get(container, b"") + f.data
+        elif f.sf_id == 0xD3AFC3 and current is not None:  # IOB places one
+            image = _parse_iob(f.data, resources)
+            if image is not None:
+                current.images.append(image)
+        elif f.sf_id == 0xD3A8AF:  # BPG
             current = Page()
             if pgd_default:
                 current.width, current.height, current.units_per_inch = pgd_default

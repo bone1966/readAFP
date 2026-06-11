@@ -130,6 +130,20 @@ def test_table_band_sits_behind_white_labels() -> None:
     assert cell.y <= options.y <= cell.y + cell.thickness
 
 
+def test_object_container_jpeg_is_placed() -> None:
+    if not HEALTH_SAMPLE.exists():
+        pytest.skip("test corpus not present")
+    page = extract_pages(parse_file(str(HEALTH_SAMPLE)))[0]
+    assert len(page.images) == 1
+    logo = page.images[0]
+    assert logo.mime == "image/jpeg"
+    assert logo.data.startswith(b"\xff\xd8\xff")
+    assert (logo.x, logo.y) == (8715, 975)
+    assert (logo.width, logo.height) == (2385, 720)
+    svg = page_to_svg(page)
+    assert "data:image/jpeg;base64," in svg
+
+
 def test_extract_pages_empty_document() -> None:
     sample = TESTDATA / "alpheus-corpus" / "minimal.afp"
     if not sample.exists():

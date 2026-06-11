@@ -6,6 +6,7 @@ rules are drawn as rectangles. Coordinates are L-units, so the SVG
 viewBox is the page size and the browser scales it.
 """
 
+import base64
 import logging
 from typing import List
 from xml.sax.saxutils import escape, quoteattr
@@ -39,6 +40,13 @@ def page_to_svg(page: Page) -> str:
         parts.append(
             f'<rect x="{x}" y="{y}" width="{w}" height="{h}" '
             f'fill={quoteattr(rule.color)}/>'
+        )
+    for img in page.images:
+        b64 = base64.b64encode(img.data).decode("ascii")
+        parts.append(
+            f'<image x="{img.x}" y="{img.y}" width="{img.width}" '
+            f'height="{img.height}" preserveAspectRatio="xMidYMid meet" '
+            f'href="data:{img.mime};base64,{b64}"/>'
         )
     for run in page.texts:
         weight = ' font-weight="bold"' if run.font_weight == "bold" else ""

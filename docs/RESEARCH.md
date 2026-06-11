@@ -127,8 +127,10 @@ Milestones:
    page mapping via MCF/MDR triplets (depends on milestone 2).
 4. 🔶 **Page rendering** — first pass done (`src/readafp/render.py` +
    split-pane UI): PTX text and rules on an SVG sized from the PGD,
-   font sizes estimated from inter-run spacing. Still to do: real font
-   metrics (FOCA/TrueType), IOCA images (raw + JPEG/CCITT wrapped),
-   GOCA vectors and BCOCA barcodes, text orientation (STO rotations).
+   font family/weight/size mapped from MDR (estimation as fallback),
+   and object-container images (JPEG/PNG/GIF in OCD, placed via IOB)
+   embedded in the SVG. Still to do: FOCA/embedded-TrueType metrics,
+   IOCA images (raw + JPEG/CCITT wrapped), GOCA vectors, BCOCA
+   barcodes, text orientation (STO rotations).
 5. **Quality-of-life** — page thumbnails, search, export page as
    PNG/PDF, drag-and-drop upload (BTB feature parity, but in browser).
