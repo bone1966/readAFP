@@ -209,6 +209,7 @@ Carried over from build sessions, roughly in priority order:
   0°; rotated pages will render wrong.
 - **RDW-wrapped streams** — mainframe record-format AFP (length
   prefixes instead of bare 0x5A stream) isn't detected yet.
-- **Render cap** — only the first 50 pages are rendered
-  (`MAX_RENDER_PAGES` in `app.py`); fine until a real multi-hundred
-  page file shows up.
+- **Render cap** — up to 500 pages (`MAX_RENDER_PAGES` in `app.py`),
+  stopping early once a ~50k-element content budget is spent
+  (`pages_to_svgs`); dense multi-hundred-page files will still
+  truncate, shown as "(first N of M rendered)" in the UI.

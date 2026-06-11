@@ -43,6 +43,23 @@ def test_inspect_endpoint_links_rows_to_pages() -> None:
     assert "data:image/jpeg;base64," in html  # logo made it through
 
 
+def test_inspect_endpoint_renders_all_implicit_pages() -> None:
+    sample = TESTDATA / "alpheus-corpus" / "large_ibm273.afp"
+    if not sample.exists():
+        pytest.skip("test corpus not present")
+    client = create_app().test_client()
+    with sample.open("rb") as handle:
+        response = client.post(
+            "/inspect",
+            data={"afpfile": (handle, sample.name)},
+            content_type="multipart/form-data",
+        )
+    html = response.get_data(as_text=True)
+    # All 109 flowed pages fit the content budget, so go-to-last works.
+    assert 'max="109"' in html
+    assert "of 109</span>" in html
+
+
 def test_inspect_endpoint_rejects_non_afp() -> None:
     client = create_app().test_client()
     response = client.post(

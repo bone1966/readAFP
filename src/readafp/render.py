@@ -72,8 +72,19 @@ def page_to_svg(page: Page) -> str:
     return "".join(parts)
 
 
-def pages_to_svgs(pages: List[Page], limit: int) -> List[str]:
-    """Render at most ``limit`` pages to SVG strings."""
-    if len(pages) > limit:
-        logger.info("rendering first %d of %d pages", limit, len(pages))
-    return [page_to_svg(p) for p in pages[:limit]]
+def pages_to_svgs(
+    pages: List[Page], limit: int, content_budget: int = 50000
+) -> List[str]:
+    """Render up to ``limit`` pages, stopping early if the cumulative
+    element count exceeds ``content_budget`` (keeps the embedded SVG
+    payload bounded for dense documents)."""
+    out: List[str] = []
+    used = 0
+    for page in pages[:limit]:
+        out.append(page_to_svg(page))
+        used += len(page.texts) + len(page.rules)
+        if used > content_budget:
+            break
+    if len(out) < len(pages):
+        logger.info("rendering first %d of %d pages", len(out), len(pages))
+    return out

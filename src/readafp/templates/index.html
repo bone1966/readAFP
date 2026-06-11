@@ -62,7 +62,7 @@
     #sf-table tr[data-page] { cursor: pointer; }
     #sf-table tr.filtered { display: none; }
     #sf-table tr.selected td { background: rgba(38, 198, 218, 0.12); }
-    #sf-table tr.page-anchor td { box-shadow: inset 3px 0 0 var(--accent); }
+    #sf-table tr.page-anchor td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
 
     /* Split layout: inspector | divider | renderer */
     .split {
@@ -82,9 +82,17 @@
     .split.inspect-only #render-pane, .split.inspect-only #divider { display: none; }
     .split.inspect-only #inspect-pane { flex: 1; }
     .split.render-only #inspect-pane, .split.render-only #divider { display: none; }
-    .page-nav { display: flex; align-items: center; gap: 12px; color: #cdd2e4; }
+    .page-nav { display: flex; align-items: center; gap: 8px; color: #cdd2e4; }
     .page-nav button { padding: 4px 12px; background: var(--card); color: var(--text); }
     .page-nav button:disabled { opacity: 0.35; cursor: default; }
+    #page-input {
+      width: 60px; padding: 3px 6px; text-align: center;
+      background: var(--card); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px; font-size: 0.9rem;
+    }
+    #page-input::-webkit-outer-spin-button, #page-input::-webkit-inner-spin-button {
+      -webkit-appearance: none; margin: 0;
+    }
     .sheet {
       background: white; box-shadow: 0 4px 18px rgba(0,0,0,0.45);
       width: 100%; max-width: 850px;
@@ -151,9 +159,13 @@
     <div id="divider" title="Drag to resize"></div>
     <div class="pane" id="render-pane">
       <div class="page-nav">
-        <button type="button" id="prev-page">◀</button>
-        <span id="page-label">Page 1 of {{ page_svgs|length }}</span>
-        <button type="button" id="next-page">▶</button>
+        <button type="button" id="first-page" title="First page">⏮</button>
+        <button type="button" id="prev-page" title="Previous page">◀</button>
+        <span>Page
+          <input type="number" id="page-input" min="1" max="{{ page_svgs|length }}" value="1">
+          of {{ page_svgs|length }}</span>
+        <button type="button" id="next-page" title="Next page">▶</button>
+        <button type="button" id="last-page" title="Last page">⏭</button>
         {% if page_total > page_svgs|length %}
         <span class="render-note">(first {{ page_svgs|length }} of {{ page_total }} rendered)</span>
         {% endif %}
@@ -168,9 +180,11 @@
     const svgs = [{% for svg in page_svgs or [] %}{{ svg|tojson }}{{ "," if not loop.last }}{% endfor %}];
     let pageIdx = 0;
     const sheet = document.getElementById("sheet");
-    const label = document.getElementById("page-label");
+    const pageInput = document.getElementById("page-input");
+    const firstBtn = document.getElementById("first-page");
     const prevBtn = document.getElementById("prev-page");
     const nextBtn = document.getElementById("next-page");
+    const lastBtn = document.getElementById("last-page");
 
     // Render page change; by default also scrolls the inspector to the
     // page's first field (its BPG row) and marks the page's rows.
@@ -178,9 +192,9 @@
       if (!svgs.length) return;
       pageIdx = Math.max(0, Math.min(idx, svgs.length - 1));
       sheet.innerHTML = svgs[pageIdx];
-      label.textContent = `Page ${pageIdx + 1} of ${svgs.length}`;
-      prevBtn.disabled = pageIdx === 0;
-      nextBtn.disabled = pageIdx === svgs.length - 1;
+      pageInput.value = pageIdx + 1;
+      firstBtn.disabled = prevBtn.disabled = pageIdx === 0;
+      nextBtn.disabled = lastBtn.disabled = pageIdx === svgs.length - 1;
       document.querySelectorAll("#sf-table tr.page-anchor")
         .forEach((t) => t.classList.remove("page-anchor"));
       document.querySelectorAll(`#sf-table tr[data-page="${pageIdx}"]`)
@@ -191,8 +205,15 @@
       }
     }
     if (svgs.length) {
+      firstBtn.addEventListener("click", () => showPage(0));
       prevBtn.addEventListener("click", () => showPage(pageIdx - 1));
       nextBtn.addEventListener("click", () => showPage(pageIdx + 1));
+      lastBtn.addEventListener("click", () => showPage(svgs.length - 1));
+      pageInput.addEventListener("change", () =>
+        showPage(parseInt(pageInput.value, 10) - 1 || 0));
+      pageInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") pageInput.blur();
+      });
       showPage(0, false);
     }
 

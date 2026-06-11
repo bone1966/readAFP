@@ -13,7 +13,9 @@ from readafp.render import pages_to_svgs
 logger = logging.getLogger(__name__)
 
 MAX_UPLOAD_BYTES = 64 * 1024 * 1024
-MAX_RENDER_PAGES = 50
+# Page-count ceiling; pages_to_svgs also stops early on dense documents
+# once its element budget is spent, whichever comes first.
+MAX_RENDER_PAGES = 500
 
 
 def create_app() -> Flask:
