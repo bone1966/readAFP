@@ -9,6 +9,12 @@ from flask import Flask, render_template, request
 from readafp.parser import AfpParseError, StructuredField, iter_fields
 from readafp.ptoca import extract_pages
 from readafp.render import pages_to_svgs
+from readafp.triplets import (
+    MCF_FORMAT_1,
+    MCF_FORMAT_2,
+    describe_field,
+    parse_mcf_codepages,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +23,9 @@ MAX_UPLOAD_BYTES = 64 * 1024 * 1024
 # once its element budget is spent, whichever comes first.
 MAX_RENDER_PAGES = 500
 
-# EBCDIC code pages offered for text decoding (manual override until
-# MCF label support lands). Keys are Python codec names.
+# EBCDIC code pages offered for text decoding. MCF-labeled fonts decode
+# with their declared code page; this manual choice covers the rest.
+# Keys are Python codec names.
 CODEPAGES = [
     ("cp500", "cp500 — international (default)"),
     ("cp037", "cp037 — US / Canada"),
@@ -95,9 +102,30 @@ def create_app() -> Flask:
             page_total=len(pages),
             codepages=CODEPAGES,
             codepage=codepage,
+            mcf_note=_mcf_codepage_note(parsed),
         )
 
     return app
+
+
+def _mcf_codepage_note(parsed: List[StructuredField]) -> str:
+    """Summarize the code pages MCF fields label their fonts with.
+
+    The manual code-page dropdown only applies to fonts the file leaves
+    unlabeled; this note tells the user which decoding the file itself
+    declared, e.g. "T1V10500 → cp500".
+    """
+    labels: List[str] = []
+    for field in parsed:
+        if field.sf_id not in (MCF_FORMAT_1, MCF_FORMAT_2):
+            continue
+        for cp in parse_mcf_codepages(
+            field.data, format1=field.sf_id == MCF_FORMAT_1
+        ).values():
+            label = f"{cp.name} → {cp.codec}" if cp.codec else cp.name
+            if label not in labels:
+                labels.append(label)
+    return ", ".join(labels)
 
 
 def _field_rows(parsed: List[StructuredField]) -> List[Dict[str, Any]]:
@@ -126,6 +154,7 @@ def _field_rows(parsed: List[StructuredField]) -> List[Dict[str, Any]]:
                 "depth": depth,
                 "preview": field.data[:16].hex(" "),
                 "page": current_page,
+                "triplets": describe_field(field),
             }
         )
         if field.sf_id == 0xD3A9AF:  # EPG

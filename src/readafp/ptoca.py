@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Iterator, List, Optional, Tuple
 
 from readafp.parser import StructuredField
+from readafp.triplets import iter_triplets, parse_mcf_codepages
 
 logger = logging.getLogger(__name__)
 
@@ -196,9 +197,10 @@ def iter_control_sequences(data: bytes) -> Iterator[ControlSequence]:
 def _decode_trn(params: bytes, codepage: str = "cp500") -> str:
     """Decode TRN text bytes: UTF-16BE for TrueType flows, else EBCDIC.
 
-    ``codepage`` selects the EBCDIC decoder ring (user override until
-    MCF label support lands). The UTF-16BE heuristic stays: text over
-    Latin scripts has a zero high byte for nearly every character.
+    ``codepage`` selects the EBCDIC decoder ring: the current font's
+    MCF-labeled code page when the file declares one, else the user's
+    choice. The UTF-16BE heuristic stays: text over Latin scripts has a
+    zero high byte for nearly every character.
     """
     if len(params) >= 2 and len(params) % 2 == 0:
         high_zeros = sum(1 for b in params[0::2] if b == 0)
@@ -219,17 +221,6 @@ def _u16(b: bytes, off: int = 0) -> int:
 
 def _s16(b: bytes, off: int = 0) -> int:
     return int.from_bytes(b[off : off + 2], "big", signed=True)
-
-
-def iter_triplets(data: bytes) -> Iterator[Tuple[int, bytes]]:
-    """Yield (triplet id, triplet data) from a run of MO:DCA triplets."""
-    pos = 0
-    while pos + 2 <= len(data):
-        length, tid = data[pos], data[pos + 1]
-        if length < 2 or pos + length > len(data):
-            break
-        yield tid, bytes(data[pos + 2 : pos + length])
-        pos += length
 
 
 def parse_mdr_fonts(data: bytes) -> Dict[int, FontInfo]:
@@ -288,8 +279,12 @@ class _TextState:
         self,
         fonts: Optional[Dict[int, FontInfo]] = None,
         codepage: str = "cp500",
+        font_codepages: Optional[Dict[int, str]] = None,
     ) -> None:
         self.codepage = codepage
+        # Per-coded-font code pages from MCF labels; the plain codepage
+        # is the fallback for fonts the file leaves unlabeled.
+        self.font_codepages = font_codepages if font_codepages is not None else {}
         self.i = 0
         self.b = 0
         self.inline_margin = 0
@@ -332,7 +327,9 @@ class _TextState:
             self.i = 0
             self.b = 0
         elif t == 0xDA:  # TRN
-            text = _decode_trn(p, self.codepage)
+            text = _decode_trn(
+                p, self.font_codepages.get(self.font_id, self.codepage)
+            )
             info = self.fonts.get(self.font_id, FontInfo())
             # Default to ~12pt in the page's own resolution (1440/inch
             # gives 240; FOP emits 240/inch where 12pt is just 40).
@@ -529,6 +526,7 @@ def extract_pages(
     implicit_state: Optional[_TextState] = None
     pgd_default: Optional[Tuple[int, int, int]] = None
     fonts: Dict[int, FontInfo] = {}
+    font_codepages: Dict[int, str] = {}
     resources: Dict[str, bytes] = {}
     container: Optional[str] = None
 
@@ -547,7 +545,7 @@ def extract_pages(
             current = Page()
             if pgd_default:
                 current.width, current.height, current.units_per_inch = pgd_default
-            state = _TextState(fonts, codepage)
+            state = _TextState(fonts, codepage, font_codepages)
         elif f.sf_id == 0xD3A9AF:  # EPG
             if current is not None:
                 _estimate_font_sizes(current, fonts)
@@ -555,6 +553,12 @@ def extract_pages(
             current, state = None, None
         elif f.sf_id == 0xD3ABC3:  # MDR maps fonts to SCFL local ids
             fonts.update(parse_mdr_fonts(f.data))
+        elif f.sf_id in (0xD3AB8A, 0xD3B18A):  # MCF labels coded fonts
+            for local_id, cp in parse_mcf_codepages(
+                f.data, format1=f.sf_id == 0xD3B18A
+            ).items():
+                if cp.codec:
+                    font_codepages[local_id] = cp.codec
         elif f.sf_id == 0xD3A6AF and len(f.data) >= 12:  # PGD
             parsed = _parse_pgd(f.data)
             if current is not None:
@@ -571,7 +575,7 @@ def extract_pages(
                             implicit.height,
                             implicit.units_per_inch,
                         ) = pgd_default
-                    implicit_state = _TextState(fonts, codepage)
+                    implicit_state = _TextState(fonts, codepage, font_codepages)
                     implicit_state.wrap_width = implicit.width - 480
                     implicit_state.i = 240
                     implicit_state.b = 320

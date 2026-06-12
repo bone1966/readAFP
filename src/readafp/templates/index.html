@@ -67,6 +67,18 @@
     #sf-table tr.filtered { display: none; }
     #sf-table tr.selected td { background: rgba(38, 198, 218, 0.12); }
     #sf-table tr.page-anchor td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+    #sf-table tr.has-triplets { cursor: pointer; }
+    .trip-count {
+      color: var(--accent); font-family: Consolas, monospace; font-size: 0.78rem;
+      white-space: nowrap;
+    }
+    tr.trip-detail > td { background: var(--card); padding: 4px 12px 10px 42px; }
+    .trip-table { background: none; border-radius: 0; font-size: 0.8rem; }
+    .trip-table th { background: none; position: static; font-weight: 500;
+      padding: 4px 10px; }
+    .trip-table td { padding: 3px 10px; border-bottom: 1px solid var(--border); }
+    .trip-table td.detail { color: var(--text); }
+    .trip-table td.dim { color: var(--dim); }
 
     /* Split layout: inspector | divider | renderer */
     .split {
@@ -133,7 +145,8 @@
     {% if fields %}
     <span class="meta"><b>{{ filename }}</b> · {{ "{:,}".format(filesize) }} bytes ·
       {{ "{:,}".format(fields|length) }} structured fields
-      {% if page_total %} · {{ page_total }} page{{ "s" if page_total != 1 }}{% endif %}</span>
+      {% if page_total %} · {{ page_total }} page{{ "s" if page_total != 1 }}{% endif %}
+      {% if mcf_note %} · code page from MCF: {{ mcf_note }}{% endif %}</span>
     {% if page_svgs %}
     <div class="view-toggle" role="group" aria-label="View mode">
       <button type="button" data-view="inspect-only">Inspect</button>
@@ -166,8 +179,26 @@
           <td class="sf-name" style="padding-left: {{ 12 + f.depth * 18 }}px">{{ f.name }}</td>
           <td class="token">{{ f.token }}</td>
           <td class="num">{{ f.length }}</td>
-          <td class="hex">{{ f.preview }}</td>
+          <td class="hex">{{ f.preview }}{% if f.triplets %}
+            <span class="trip-count" title="Click to show decoded triplets">▸ {{ f.triplets|length }} triplet{{ "s" if f.triplets|length != 1 }}</span>{% endif %}</td>
         </tr>
+        {% if f.triplets %}
+        <tr class="trip-detail" data-name="{{ f.name }}" hidden><td colspan="6">
+          <table class="trip-table">
+            <tr><th>ID</th>{% if f.triplets[0].group is not none %}<th>RG</th>{% endif %}
+                <th>Triplet</th><th>Decoded</th><th>Data (hex)</th></tr>
+            {% for t in f.triplets %}
+            <tr>
+              <td class="hex">{{ t.id }}</td>
+              {% if t.group is not none %}<td class="dim">{{ t.group }}</td>{% endif %}
+              <td class="dim">{{ t.name }}</td>
+              <td class="detail">{{ t.detail }}</td>
+              <td class="hex">{{ t.hex }}</td>
+            </tr>
+            {% endfor %}
+          </table>
+        </td></tr>
+        {% endif %}
         {% endfor %}
       </table>
     </div>
@@ -317,6 +348,15 @@
             .forEach((el) => el.classList.add("run-flash"));
         }
       });
+    });
+
+    // Row click -> expand/collapse the field's decoded-triplet detail.
+    document.querySelectorAll("#sf-table tr").forEach((tr) => {
+      const detail = tr.nextElementSibling;
+      if (detail && detail.classList.contains("trip-detail")) {
+        tr.classList.add("has-triplets");
+        tr.addEventListener("click", () => { detail.hidden = !detail.hidden; });
+      }
     });
 
     // Field-count click -> filter the table to that field type (toggle).

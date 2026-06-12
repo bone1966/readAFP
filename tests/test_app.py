@@ -82,6 +82,38 @@ def test_inspect_endpoint_codepage_override() -> None:
     assert 'value="cp273" selected' in html
 
 
+def test_inspect_endpoint_shows_triplet_details() -> None:
+    if not HEALTH_SAMPLE.exists():
+        pytest.skip("test corpus not present")
+    client = create_app().test_client()
+    with HEALTH_SAMPLE.open("rb") as handle:
+        response = client.post(
+            "/inspect",
+            data={"afpfile": (handle, HEALTH_SAMPLE.name)},
+            content_type="multipart/form-data",
+        )
+    html = response.get_data(as_text=True)
+    # The MDR's decoded triplets are embedded as an expandable detail row.
+    assert 'class="trip-detail"' in html
+    assert "Fully Qualified Name" in html
+    assert "Arial Bold" in html
+
+
+def test_inspect_endpoint_notes_mcf_codepage() -> None:
+    sample = TESTDATA / "fop-pairs" / "simple.afp"
+    if not sample.exists():
+        pytest.skip("FOP pairs not present")
+    client = create_app().test_client()
+    with sample.open("rb") as handle:
+        response = client.post(
+            "/inspect",
+            data={"afpfile": (handle, sample.name)},
+            content_type="multipart/form-data",
+        )
+    html = response.get_data(as_text=True)
+    assert "code page from MCF: T1V10500 → cp500" in html
+
+
 def test_inspect_endpoint_rejects_non_afp() -> None:
     client = create_app().test_client()
     response = client.post(
