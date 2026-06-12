@@ -11,9 +11,52 @@ import logging
 from typing import List
 from xml.sax.saxutils import escape, quoteattr
 
-from readafp.ptoca import MAX_RUNS_PER_PAGE, Page
+from readafp.ptoca import MAX_RUNS_PER_PAGE, ImageRef, Page
 
 logger = logging.getLogger(__name__)
+
+# Each CMYK plane JPEG is grayscale (R=G=B = ink amount). The filters
+# map a plane to its complement color (C ink absorbs red, ...), so
+# multiply-blending the four planes composes the inks optically:
+# R = (1-C)(1-K), G = (1-M)(1-K), B = (1-Y)(1-K).
+_INK_FILTERS = (
+    "<defs>"
+    '<filter id="ink-c" color-interpolation-filters="sRGB">'
+    '<feColorMatrix values="-1 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 1 0"/>'
+    "</filter>"
+    '<filter id="ink-m" color-interpolation-filters="sRGB">'
+    '<feColorMatrix values="0 0 0 0 1  0 -1 0 0 1  0 0 0 0 1  0 0 0 1 0"/>'
+    "</filter>"
+    '<filter id="ink-y" color-interpolation-filters="sRGB">'
+    '<feColorMatrix values="0 0 0 0 1  0 0 0 0 1  0 0 -1 0 1  0 0 0 1 0"/>'
+    "</filter>"
+    '<filter id="ink-k" color-interpolation-filters="sRGB">'
+    '<feColorMatrix values="-1 0 0 0 1  0 -1 0 0 1  0 0 -1 0 1  0 0 0 1 0"/>'
+    "</filter>"
+    "</defs>"
+)
+
+
+def _image_markup(img: ImageRef) -> str:
+    """One placed image: a plain <image>, or a CMYK plane composite."""
+    box = (
+        f'x="{img.x}" y="{img.y}" width="{img.width}" '
+        f'height="{img.height}" preserveAspectRatio="xMidYMid meet"'
+    )
+    if not img.bands:
+        b64 = base64.b64encode(img.data).decode("ascii")
+        return f'<image {box} href="data:{img.mime};base64,{b64}"/>'
+    parts = ['<g style="isolation:isolate">']
+    for ink, blob in zip("cmyk", img.bands):
+        b64 = base64.b64encode(blob).decode("ascii")
+        # The first (opaque) plane is the blend base for the rest.
+        blend = "" if ink == "c" else ' style="mix-blend-mode:multiply"'
+        parts.append(
+            f'<image {box} filter="url(#ink-{ink})"{blend} '
+            f'href="data:image/jpeg;base64,{b64}"/>'
+        )
+    parts.append("</g>")
+    return "".join(parts)
 
 
 def _fit(texts, i) -> str:
@@ -48,6 +91,8 @@ def page_to_svg(page: Page) -> str:
         f'font-family="Arial, Helvetica, sans-serif">',
         f'<rect width="{page.width}" height="{page.height}" fill="#ffffff"/>',
     ]
+    if any(img.bands for img in page.images):
+        parts.append(_INK_FILTERS)
     for rule in page.rules:
         # Rules extend from the current position in the +I/+B direction
         # (negative length or width extends the other way).
@@ -67,12 +112,7 @@ def page_to_svg(page: Page) -> str:
             f'fill={quoteattr(rule.color)}/>'
         )
     for img in page.images:
-        b64 = base64.b64encode(img.data).decode("ascii")
-        parts.append(
-            f'<image x="{img.x}" y="{img.y}" width="{img.width}" '
-            f'height="{img.height}" preserveAspectRatio="xMidYMid meet" '
-            f'href="data:{img.mime};base64,{b64}"/>'
-        )
+        parts.append(_image_markup(img))
     for i, run in enumerate(page.texts):
         weight = ' font-weight="bold"' if run.font_weight == "bold" else ""
         family = (

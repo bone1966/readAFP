@@ -19,6 +19,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Dict, Iterator, List, Optional, Tuple
 
+from readafp.ioca import cmyk_jpeg_bands, image_blob, parse_image_segment
 from readafp.parser import StructuredField
 from readafp.triplets import iter_triplets, parse_mcf_codepages
 
@@ -121,6 +122,8 @@ class ImageRef:
     height: int
     mime: str
     data: bytes
+    # CMYK plane JPEGs for band-interleaved images; data is empty then.
+    bands: Optional[List[bytes]] = None
 
 
 @dataclass
@@ -466,12 +469,102 @@ def _sniff_image(data: bytes) -> Optional[str]:
     return None
 
 
-def _parse_iob(data: bytes, resources: Dict[str, bytes]) -> Optional[ImageRef]:
+@dataclass
+class _ImageObject:
+    """A decoded BIM...EIM image object, ready to place or page."""
+
+    mime: str
+    blob: bytes
+    upi: int  # object-area units per inch, from its OBD (or image dpi)
+    width: int  # object-area size in those units
+    height: int
+    x: int = 0  # OBP offsets, in the including page's units
+    y: int = 0
+    bands: Optional[List[bytes]] = None  # CMYK plane JPEGs
+
+
+def _parse_obd(data: bytes) -> Tuple[Optional[int], int, int]:
+    """Return (units_per_inch, width, height) from OBD triplets.
+
+    0x4B (Measurement Units) gives units per unit base (00 = 10 inches);
+    0x4C (Object Area Size) gives the extent in those units.
+    """
+    upi: Optional[int] = None
+    width = height = 0
+    for tid, tdata in iter_triplets(data):
+        if tid == 0x4B and len(tdata) >= 4:
+            upi = _u16(tdata, 2) // 10 or None
+        elif tid == 0x4C and len(tdata) >= 7:
+            width = int.from_bytes(tdata[1:4], "big")
+            height = int.from_bytes(tdata[4:7], "big")
+    return upi, width, height
+
+
+def _parse_obp(data: bytes) -> Tuple[int, int]:
+    """Return the object area's (x, y) origin from an OBP field."""
+    # OAPosID(1) RGLength(1) XoaOSet(3) YoaOSet(3) ...
+    if len(data) < 8:
+        return 0, 0
+    x = int.from_bytes(data[2:5], "big", signed=True)
+    y = int.from_bytes(data[5:8], "big", signed=True)
+    return x, y
+
+
+def _finish_image_object(
+    ipd: bytes, obd: Optional[bytes], obp: Optional[bytes]
+) -> Optional[_ImageObject]:
+    """Decode a completed BIM...EIM capture into a placeable object."""
+    segment = parse_image_segment(ipd)
+    if segment is None:
+        return None
+    bands: Optional[List[bytes]] = None
+    blob = image_blob(segment)
+    if blob is not None:
+        mime, payload = blob
+    else:
+        bands = cmyk_jpeg_bands(segment)
+        if bands is None:
+            logger.info(
+                "skipping IOCA image: compression 0x%02X, %d bits/IDE "
+                "not decoded",
+                segment.compression,
+                segment.bits,
+            )
+            return None
+        mime, payload = "image/jpeg", b""
+    upi, width, height = _parse_obd(obd) if obd else (None, 0, 0)
+    if width <= 0 or height <= 0:
+        # No usable object area: fall back to the pixel grid at the
+        # image's own resolution (0x94 resolution is per 10 inches).
+        upi = segment.hres // 10 or None
+        width, height = segment.width, segment.height
+    if width <= 0 or height <= 0:
+        return None
+    x, y = _parse_obp(obp) if obp else (0, 0)
+    return _ImageObject(
+        mime=mime, blob=payload, upi=upi or 1440, width=width,
+        height=height, x=x, y=y, bands=bands,
+    )
+
+
+def _scale(value: int, from_upi: int, to_upi: int) -> int:
+    return value * to_upi // from_upi if from_upi else value
+
+
+def _parse_iob(
+    data: bytes,
+    resources: Dict[str, bytes],
+    images: Dict[str, _ImageObject],
+    page_upi: int,
+) -> Optional[ImageRef]:
     """Build an ImageRef from an IOB (Include Object) field, if renderable.
 
     IOB layout: name(8) reserved(1) ObjType(1) XoaOset(3) YoaOset(3)
     orientation(4) XocaOset(3) YocaOset(3) RefCSys(1), then triplets —
-    of which 0x4C (Object Area Size) carries the placed extent.
+    0x4C (Object Area Size) carries the placed extent in the units of
+    0x4B (Measurement Units), defaulting to the page's own units. The
+    name resolves an object-container resource (raster bytes sniffed
+    from OCD data) or a decoded IOCA image object.
     """
     if len(data) < 27:
         return None
@@ -479,22 +572,41 @@ def _parse_iob(data: bytes, resources: Dict[str, bytes]) -> Optional[ImageRef]:
         name = data[:8].decode("cp500").strip()
     except UnicodeDecodeError:
         return None
-    blob = resources.get(name)
-    if blob is None:
-        return None
-    mime = _sniff_image(blob)
-    if mime is None:
-        return None
     x = int.from_bytes(data[10:13], "big", signed=True)
     y = int.from_bytes(data[13:16], "big", signed=True)
+    upi: Optional[int] = None
     width = height = 0
     for tid, tdata in iter_triplets(data[27:]):
         if tid == 0x4C and len(tdata) >= 7:  # Object Area Size
             width = int.from_bytes(tdata[1:4], "big")
             height = int.from_bytes(tdata[4:7], "big")
+        elif tid == 0x4B and len(tdata) >= 4:  # Measurement Units
+            upi = _u16(tdata, 2) // 10 or None
+
+    bands: Optional[List[bytes]] = None
+    blob = resources.get(name)
+    if blob is not None:
+        mime = _sniff_image(blob)
+        if mime is None:
+            return None
+    else:
+        obj = images.get(name)
+        if obj is None:
+            return None
+        mime, blob, bands = obj.mime, obj.blob, obj.bands
+        if width <= 0 or height <= 0:  # fall back to the object's OBD
+            upi, width, height = obj.upi, obj.width, obj.height
     if width <= 0 or height <= 0:
         return None
-    return ImageRef(x=x, y=y, width=width, height=height, mime=mime, data=blob)
+    return ImageRef(
+        x=x,
+        y=y,
+        width=_scale(width, upi or page_upi, page_upi),
+        height=_scale(height, upi or page_upi, page_upi),
+        mime=mime,
+        data=blob,
+        bands=bands,
+    )
 
 
 def _parse_pgd(data: bytes) -> Tuple[int, int, int]:
@@ -516,8 +628,11 @@ def extract_pages(
     directly under BDT) are collected onto one implicit page, appended
     after the bracketed pages and grown to fit its content.
 
-    This is a first-pass renderer's view: text runs and rules with
-    positions and colors, default font metrics, no IOCA/GOCA content yet.
+    IOCA image objects (BIM...EIM) are decoded wherever they appear:
+    inline in a page they are placed by their own OBP/OBD, in a
+    resource group or page segment they are registered by name for IOB
+    inclusion, and in a document with no pages at all (standalone
+    object files) each becomes its own page-sized view.
     """
     pages: List[Page] = []
     current: Optional[Page] = None
@@ -529,6 +644,14 @@ def extract_pages(
     font_codepages: Dict[int, str] = {}
     resources: Dict[str, bytes] = {}
     container: Optional[str] = None
+    image_resources: Dict[str, _ImageObject] = {}
+    loose_images: List[_ImageObject] = []
+    resource_name: Optional[str] = None  # enclosing BRS or BPS token
+    in_image = False
+    image_ipd = bytearray()
+    image_obd: Optional[bytes] = None
+    image_obp: Optional[bytes] = None
+    image_name: Optional[str] = None
 
     for f in fields:
         if f.sf_id == 0xD3A892:  # BOC opens an object container resource
@@ -537,8 +660,50 @@ def extract_pages(
             container = None
         elif f.sf_id == 0xD3EE92 and container:  # OCD carries its bytes
             resources[container] = resources.get(container, b"") + f.data
+        elif f.sf_id in (0xD3A8CE, 0xD3A85F):  # BRS / BPS name a resource
+            resource_name = f.token_name
+        elif f.sf_id in (0xD3A9CE, 0xD3A95F):  # ERS / EPS
+            resource_name = None
+        elif f.sf_id == 0xD3A8FB:  # BIM starts an image object capture
+            in_image = True
+            image_ipd = bytearray()
+            image_obd = image_obp = None
+            image_name = f.token_name
+        elif f.sf_id == 0xD3A9FB and in_image:  # EIM completes it
+            in_image = False
+            obj = _finish_image_object(bytes(image_ipd), image_obd, image_obp)
+            if obj is not None:
+                if current is not None:  # inline: place on the page now
+                    current.images.append(
+                        ImageRef(
+                            x=obj.x,
+                            y=obj.y,
+                            width=_scale(
+                                obj.width, obj.upi, current.units_per_inch
+                            ),
+                            height=_scale(
+                                obj.height, obj.upi, current.units_per_inch
+                            ),
+                            mime=obj.mime,
+                            data=obj.blob,
+                            bands=obj.bands,
+                        )
+                    )
+                else:
+                    for key in (image_name, resource_name):
+                        if key:
+                            image_resources.setdefault(key, obj)
+                    loose_images.append(obj)
+        elif in_image and f.sf_id == 0xD3A66B:  # OBD: object area size
+            image_obd = f.data
+        elif in_image and f.sf_id == 0xD3AC6B:  # OBP: object area origin
+            image_obp = f.data
+        elif in_image and f.sf_id == 0xD3EEFB:  # IPD: IOCA segment bytes
+            image_ipd += f.data
         elif f.sf_id == 0xD3AFC3 and current is not None:  # IOB places one
-            image = _parse_iob(f.data, resources)
+            image = _parse_iob(
+                f.data, resources, image_resources, current.units_per_inch
+            )
             if image is not None:
                 current.images.append(image)
         elif f.sf_id == 0xD3A8AF:  # BPG
@@ -589,6 +754,20 @@ def extract_pages(
     if implicit is not None and (implicit.texts or implicit.rules):
         _estimate_font_sizes(implicit, fonts)
         pages.extend(_paginate_implicit(implicit))
+    if not pages and loose_images:
+        # Standalone object / resource-only files have no pages to
+        # place these on; show each image object at its own extent.
+        for obj in loose_images:
+            page = Page(
+                width=obj.width, height=obj.height, units_per_inch=obj.upi
+            )
+            page.images.append(
+                ImageRef(
+                    x=0, y=0, width=obj.width, height=obj.height,
+                    mime=obj.mime, data=obj.blob, bands=obj.bands,
+                )
+            )
+            pages.append(page)
     return pages
 
 

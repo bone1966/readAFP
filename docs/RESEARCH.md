@@ -205,10 +205,12 @@ Milestones:
 4. 🔶 **Page rendering** — first pass done (`src/readafp/render.py` +
    split-pane UI): PTX text and rules on an SVG sized from the PGD,
    font family/weight/size mapped from MDR (estimation as fallback),
-   and object-container images (JPEG/PNG/GIF in OCD, placed via IOB)
-   embedded in the SVG. Still to do: FOCA/embedded-TrueType metrics,
-   IOCA images (raw + JPEG/CCITT wrapped), GOCA vectors, BCOCA
-   barcodes, text orientation (STO rotations).
+   object-container images (JPEG/PNG/GIF in OCD, placed via IOB)
+   embedded in the SVG, and IOCA image objects (uncompressed
+   bilevel/gray as PNG, JPEG pass-through, banded CMYK composited
+   with SVG filters — inline, IOB-included, or standalone). Still to
+   do: FOCA/embedded-TrueType metrics, CCITT-compressed IOCA, GOCA
+   vectors, BCOCA barcodes, text orientation (STO rotations).
 5. 🔶 **Quality-of-life** — done: drag-and-drop upload (drop an .afp
    anywhere), copy-page-text and download-all-as-.txt buttons, zoom
    (fit width / 50–400%, where 100% = real size via the page's
@@ -264,8 +266,14 @@ Carried over from build sessions, roughly in priority order:
   detection by x-position clustering.
 - **Triplet detail view** — `iter_triplets()` exists; the inspector
   should decode and show triplets per field instead of a hex preview.
-- **IOCA / GOCA / BCOCA objects** — images beyond object containers
-  (IOCA raw + JPEG/CCITT wrapped), vector graphics, barcodes.
+- **GOCA / BCOCA objects** — vector graphics and barcodes. IOCA landed
+  2026-06-12 (`src/readafp/ioca.py`): uncompressed bilevel/8-bit gray
+  rebuilt as PNG, JPEG passed through, FS45 band-interleaved CMYK
+  composited in SVG via per-ink color-matrix filters + multiply
+  blending. Inline BIM (placed by OBP/OBD), IOB-included resources
+  (BRS), and page-less object files (each image becomes its own page)
+  all render. Not covered: CCITT G3/G4 compression (no corpus file
+  uses it), uncompressed banded color, transparency masks.
 - **Font metrics** — embedded TrueType (in object containers) and FOCA
   raster fonts are ignored; system-font substitution can misplace
   advance widths. Spacing-based size estimation remains the fallback
