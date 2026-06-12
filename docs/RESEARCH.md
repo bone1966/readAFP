@@ -202,6 +202,14 @@ Milestones:
 
 ## 6. Backlog / known limitations
 
+Design principle (decided 2026-06-12): **render what the file says —
+don't invent features the format doesn't have.** Example: AFP has no
+web hyperlinks (URLs are just glyphs + a rule; MO:DCA's LLE is for
+archive-viewer navigation and appears in 0 of our 138 corpus files),
+so we deliberately do not auto-linkify URL-looking text. readAFP's
+value as a diagnostic tool depends on showing the file's actual
+content, nothing more.
+
 Carried over from build sessions, roughly in priority order:
 
 - ✅ **Implicit page for unbracketed PTX** — loose PTX now flows onto
