@@ -149,6 +149,14 @@ Useful link hub: Apache FOP "AFP Resources" wiki
   BCOCA, IOCA, line data, …).
 - Note: 7 files under `alpheus-corpus/external/` are saved HTML error
   pages, not AFP — keep as negative-test fixtures.
+- `github-samples/` — 16 Apache-2.0 files gathered 2026-06-12 from
+  yan74/afplib and apache/xmlgraphics-fop (see its README). Headline:
+  **9 files with real IOCA image objects** (`bim.afp` is the big one)
+  — the missing fixtures for the IOCA backlog item — plus FOCA font
+  resources whose fields the parser doesn't name yet. All 16 parse.
+  Still no AFP+PDF matched pairs in the wild; the practical route is
+  generating them with Apache FOP (same XSL-FO → AFP and PDF), which
+  needs a Java runtime.
 
 What the corpus actually contains (learned while building the
 renderer — all 138 files parse, but render coverage is thin):
