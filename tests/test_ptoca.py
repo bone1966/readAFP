@@ -242,6 +242,21 @@ def test_runs_carry_source_field_offset() -> None:
     assert 'data-src="6559"' in svg and 'data-src="6039"' in svg
 
 
+def test_fop_pair_font_sizes_from_baseline_pitch() -> None:
+    sample = TESTDATA / "fop-pairs" / "table.afp"
+    if not sample.exists():
+        pytest.skip("FOP pairs not present")
+    pages = extract_pages(parse_file(str(sample)))
+    assert len(pages) == 7
+    page = pages[0]
+    # FOP emits 240 units/inch; 12pt is 40 units there. The body font
+    # has no declared size — baseline pitch (48) must yield ~40, not
+    # the 80+ that column-gap estimation used to produce.
+    assert page.units_per_inch == 240
+    body = next(r for r in page.texts if "normal text" in r.text)
+    assert 30 <= body.font_size <= 48
+
+
 def test_extract_pages_empty_document() -> None:
     sample = TESTDATA / "alpheus-corpus" / "minimal.afp"
     if not sample.exists():

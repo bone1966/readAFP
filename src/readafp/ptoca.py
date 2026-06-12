@@ -334,7 +334,9 @@ class _TextState:
         elif t == 0xDA:  # TRN
             text = _decode_trn(p, self.codepage)
             info = self.fonts.get(self.font_id, FontInfo())
-            size = info.size or DEFAULT_FONT_SIZE
+            # Default to ~12pt in the page's own resolution (1440/inch
+            # gives 240; FOP emits 240/inch where 12pt is just 40).
+            size = info.size or max(page.units_per_inch // 6, 8)
             if (
                 self.wrap_width is not None
                 and self.i > 0
@@ -398,19 +400,58 @@ def _estimate_font_sizes(page: Page, known_fonts: Dict[int, FontInfo]) -> None:
     the point size.
     """
     sized = {fid for fid, info in known_fonts.items() if info.size}
+    # Clamp to ~4pt..60pt in the page's own resolution.
+    lo = max(page.units_per_inch // 18, 4)
+    hi = page.units_per_inch * 5 // 6
+
+    # Primary estimate: baseline pitch. A font's consecutive baselines
+    # are line-spaced at ~1.2x its point size, and column gaps can't
+    # pollute the vertical axis the way they do horizontal gaps.
+    baselines: dict = {}
+    for r in page.texts:
+        if r.font_id not in sized:
+            baselines.setdefault(r.font_id, set()).add(r.y)
+    pitch_est: dict = {}
+    for fid, ys in baselines.items():
+        ordered = sorted(ys)
+        diffs = [
+            b - a
+            for a, b in zip(ordered, ordered[1:])
+            if 0 < b - a <= page.units_per_inch // 2
+        ]
+        if diffs:
+            diffs.sort()
+            pitch = diffs[len(diffs) // 2]
+            pitch_est[fid] = max(lo, min(hi, int(pitch / 1.2)))
+
+    # Fallback for single-line fonts: horizontal gaps that imply a
+    # plausible character width (~5pt-35pt; larger means column jump).
+    min_char = page.units_per_inch / 30
+    max_char = page.units_per_inch / 4
     samples: dict = {}
     for a, b in zip(page.texts, page.texts[1:]):
-        if a.y == b.y and b.x > a.x and a.text and a.font_id not in sized:
+        if (
+            a.y == b.y
+            and b.x > a.x
+            and a.text
+            and a.font_id not in sized
+            and a.font_id not in pitch_est
+        ):
             per_char = (b.x - a.x) / (len(a.text) + 1)
-            samples.setdefault(a.font_id, []).append(per_char)
+            if min_char <= per_char <= max_char:
+                samples.setdefault(a.font_id, []).append(per_char)
+
     for run in page.texts:
         if run.font_id in sized:
+            continue
+        if run.font_id in pitch_est:
+            run.font_size = pitch_est[run.font_id]
             continue
         widths = samples.get(run.font_id)
         if widths:
             widths.sort()
             median = widths[len(widths) // 2]
-            run.font_size = max(80, min(1200, int(median / 0.52)))
+            run.font_size = max(lo, min(hi, int(median / 0.52)))
 
 
 _IMAGE_MAGICS = (

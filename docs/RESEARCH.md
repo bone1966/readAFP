@@ -157,6 +157,15 @@ Useful link hub: Apache FOP "AFP Resources" wiki
   Still no AFP+PDF matched pairs in the wild; the practical route is
   generating them with Apache FOP (same XSL-FO → AFP and PDF), which
   needs a Java runtime.
+- `fop-pairs/` — **8 matched AFP+PDF pairs** generated 2026-06-12 with
+  FOP 2.11 (see its README for the recipe). First real multi-page
+  bracketed files in the corpus, IOCA images with PDF ground truth,
+  and two renderer lessons already learned: FOP emits **240
+  units/inch** (we assumed 1440-scale defaults — now
+  resolution-relative), and its MCF-mapped fonts declare no sizes, so
+  size estimation now prefers **baseline pitch** (median distance
+  between a font's consecutive baselines ÷ 1.2) over horizontal gaps,
+  which table columns pollute.
 
 What the corpus actually contains (learned while building the
 renderer — all 138 files parse, but render coverage is thin):
