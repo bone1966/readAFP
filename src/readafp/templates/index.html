@@ -77,8 +77,9 @@
     #inspect-pane { flex: 0 0 55%; padding: 14px; background: var(--bg); }
     #render-pane {
       flex: 1; background: #3c4154; padding: 10px 16px;
-      display: flex; flex-direction: column; align-items: center; gap: 8px;
+      display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
     }
+    #render-pane > * { margin-inline: auto; }
     #divider {
       flex: 0 0 6px; cursor: col-resize; background: var(--border);
     }
@@ -178,6 +179,15 @@
         <button type="button" id="last-page" title="Last page">⏭</button>
         <button type="button" id="copy-text" title="Copy this page's text">⧉ Copy text</button>
         <button type="button" id="download-text" title="Download all pages as .txt">⬇ .txt</button>
+        <select id="zoom" title="Zoom">
+          <option value="fit" selected>Fit width</option>
+          <option value="0.5">50%</option>
+          <option value="1">100%</option>
+          <option value="1.5">150%</option>
+          <option value="2">200%</option>
+          <option value="4">400%</option>
+        </select>
+        <span class="render-note" id="xy" title="Pointer position on the page, in inches"></span>
         {% if page_total > page_svgs|length %}
         <span class="render-note">(first {{ page_svgs|length }} of {{ page_total }} rendered)</span>
         {% endif %}
@@ -198,12 +208,45 @@
     const nextBtn = document.getElementById("next-page");
     const lastBtn = document.getElementById("last-page");
 
+    // Zoom: "fit" tracks the pane width; numbers are real size (the
+    // page's units-per-inch mapped to 96 css px/inch) times the factor.
+    const zoomSel = document.getElementById("zoom");
+    function applyZoom() {
+      const svg = sheet.querySelector("svg");
+      if (!svg) return;
+      if (zoomSel.value === "fit") {
+        sheet.style.width = "100%";
+        sheet.style.maxWidth = "850px";
+        svg.style.width = "100%";
+      } else {
+        const upi = parseInt(svg.dataset.upi, 10) || 1440;
+        const px = (svg.viewBox.baseVal.width / upi) * 96 * parseFloat(zoomSel.value);
+        sheet.style.width = px + "px";
+        sheet.style.maxWidth = "none";
+        svg.style.width = px + "px";
+      }
+    }
+
+    // X,Y readout: pointer position in inches from the page's top-left.
+    const xyLabel = document.getElementById("xy");
+    sheet.addEventListener("mousemove", (e) => {
+      const svg = sheet.querySelector("svg");
+      if (!svg) return;
+      const r = svg.getBoundingClientRect();
+      const upi = parseInt(svg.dataset.upi, 10) || 1440;
+      const x = ((e.clientX - r.left) / r.width) * svg.viewBox.baseVal.width / upi;
+      const y = ((e.clientY - r.top) / r.height) * svg.viewBox.baseVal.height / upi;
+      xyLabel.textContent = `X,Y: ${x.toFixed(2)}, ${y.toFixed(2)} in`;
+    });
+    sheet.addEventListener("mouseleave", () => { xyLabel.textContent = ""; });
+
     // Render page change; by default also scrolls the inspector to the
     // page's first field (its BPG row) and marks the page's rows.
     function showPage(idx, syncInspector = true) {
       if (!svgs.length) return;
       pageIdx = Math.max(0, Math.min(idx, svgs.length - 1));
       sheet.innerHTML = svgs[pageIdx];
+      applyZoom();
       pageInput.value = pageIdx + 1;
       firstBtn.disabled = prevBtn.disabled = pageIdx === 0;
       nextBtn.disabled = lastBtn.disabled = pageIdx === svgs.length - 1;
@@ -248,6 +291,7 @@
       pageInput.addEventListener("keydown", (e) => {
         if (e.key === "Enter") pageInput.blur();
       });
+      zoomSel.addEventListener("change", applyZoom);
       showPage(0, false);
     }
 

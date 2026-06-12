@@ -21,6 +21,7 @@ def page_to_svg(page: Page) -> str:
     parts: List[str] = [
         f'<svg xmlns="http://www.w3.org/2000/svg" '
         f'viewBox="0 0 {page.width} {page.height}" '
+        f'data-upi="{page.units_per_inch}" '
         f'font-family="Arial, Helvetica, sans-serif">',
         f'<rect width="{page.width}" height="{page.height}" fill="#ffffff"/>',
     ]

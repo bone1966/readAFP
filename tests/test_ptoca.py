@@ -80,6 +80,7 @@ def test_page_to_svg_escapes_and_positions() -> None:
     svg = page_to_svg(page)
     assert svg.startswith("<svg")
     assert 'viewBox="0 0 12240 15840"' in svg
+    assert 'data-upi="1440"' in svg  # zoom/X,Y readout need real units
     assert "John" in svg
     assert "&" not in svg.replace("&amp;", "").replace("&lt;", "").replace(
         "&gt;", ""

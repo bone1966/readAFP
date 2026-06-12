@@ -179,9 +179,12 @@ Milestones:
    IOCA images (raw + JPEG/CCITT wrapped), GOCA vectors, BCOCA
    barcodes, text orientation (STO rotations).
 5. 🔶 **Quality-of-life** — done: drag-and-drop upload (drop an .afp
-   anywhere), copy-page-text and download-all-as-.txt buttons. Still
-   to do: page thumbnails, search, export page as PNG/PDF (BTB
-   feature parity, but in browser).
+   anywhere), copy-page-text and download-all-as-.txt buttons, zoom
+   (fit width / 50–400%, where 100% = real size via the page's
+   units-per-inch at 96 css px/inch), and an X,Y pointer readout in
+   inches for checking positions against the spec. Still to do: page
+   thumbnails, search, export page as PNG/PDF (BTB feature parity,
+   but in browser).
 
 ## 6. Backlog / known limitations
 
