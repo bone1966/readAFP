@@ -101,6 +101,20 @@ Facts verified while building the renderer (against
 - **Colors**: SEC triplet-style params (colorspace 0x01 = RGB with
   8/8/8 component sizes) carry exact RGB; STC has a small fixed
   two-byte palette.
+- **Bullets may be drawn, not typed**: the health sample's square
+  list bullets are five tiny rules each (a box outline plus a 30×30
+  fill) — they render for free if rules are right. Its closing-list
+  round bullets exist in the PDF/HTML versions but **not in the AFP
+  at all** (no text, no rules at those positions; AFPviewer shows
+  none either) — a ground-truth divergence in the sample, not a
+  renderer bug.
+- **Substitute-font drift is visible at line level**: e.g. the
+  underlined URL — the AFP draws the underline rule at the exact
+  width its font metrics produced, so text rendered a few percent
+  narrower overshoots/undershoots it. Fixed by setting SVG
+  `textLength` to the extent implied by the next run's position on
+  the same baseline (ratio-guarded so column gaps and short runs
+  don't distort).
 
 Gotcha found in the corpus: anything not starting `0x5A` isn't a
 (document-form) AFP stream. Mainframe-native files can also be wrapped

@@ -16,6 +16,29 @@ from readafp.ptoca import MAX_RUNS_PER_PAGE, Page
 logger = logging.getLogger(__name__)
 
 
+def _fit(texts, i) -> str:
+    """Stretch a run to the width the AFP's own positioning implies.
+
+    If the next run sits on the same baseline, the gap between their
+    start positions minus one space is the width the producer gave this
+    run's glyphs. Substitute fonts render a few percent off, which makes
+    underlines overshoot and trailing punctuation drift; textLength
+    pins the run to the intended extent. The ratio guard keeps column
+    gaps and short runs from triggering visible distortion.
+    """
+    run = texts[i]
+    nxt = texts[i + 1] if i + 1 < len(texts) else None
+    if nxt is None or nxt.y != run.y or nxt.x <= run.x:
+        return ""
+    if len(run.text.strip()) < 4:
+        return ""
+    avail = nxt.x - run.x - int(0.3 * run.font_size)  # minus one space
+    est = len(run.text) * 0.52 * run.font_size
+    if est <= 0 or not 0.7 <= avail / est <= 1.4:
+        return ""
+    return f' textLength="{avail}" lengthAdjust="spacing"'
+
+
 def page_to_svg(page: Page) -> str:
     """Build an SVG document string for one page."""
     parts: List[str] = [
@@ -50,7 +73,7 @@ def page_to_svg(page: Page) -> str:
             f'height="{img.height}" preserveAspectRatio="xMidYMid meet" '
             f'href="data:{img.mime};base64,{b64}"/>'
         )
-    for run in page.texts:
+    for i, run in enumerate(page.texts):
         weight = ' font-weight="bold"' if run.font_weight == "bold" else ""
         family = (
             f" font-family={quoteattr(run.font_family)}"
@@ -60,7 +83,7 @@ def page_to_svg(page: Page) -> str:
         src = f' data-src="{run.src}"' if run.src is not None else ""
         parts.append(
             f'<text x="{run.x}" y="{run.y}" font-size="{run.font_size}"'
-            f"{family}{weight}{src} "
+            f"{family}{weight}{src}{_fit(page.texts, i)} "
             f'fill={quoteattr(run.color)}>{escape(run.text)}</text>'
         )
     if page.truncated:
