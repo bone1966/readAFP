@@ -114,7 +114,7 @@ modern target).
 |---|---|
 | **BTB AFP Viewer / Browser** (btbnet.de, via afpworld.com) | Freeware Windows viewer the user knows. Loads any PSF/Infoprint AFP, zoom/rotate/fit, exports TIFF/JPEG/BMP/EPS, prints. Registration-walled download. Feature bar to aim for: page navigation, zoom, export. |
 | **IBM AFP Workbench Viewer** | IBM's classic free viewer; the compatibility yardstick. |
-| **AFP Explorer / AFPviewer** (compulsivecode.com) | Freeware structure explorer — tree of structured fields, exactly what our first milestone does in the browser. |
+| **AFP Explorer / AFPviewer** (compulsivecode.com) | Freeware structure explorer — tree of structured fields, exactly what our first milestone does in the browser. Tested 2026-06 on the health sample: its render garbles modern AFP — UTF-16BE TrueType text decoded as single-byte EBCDIC (mojibake), MDR font mapping ignored (heading words collide). readAFP renders the same file correctly — the "modern files" gap is real. |
 | **ISIS Papyrus viewer, Compart, CrawfordTech, WinAFP** | Commercial suites (afp2pdf/afp2web conversion). Confirms the market gap: no modern open web viewer. |
 | **yan74/afplib** (GitHub, Java) | Read/write library; EMF-generated classes per structured field; good reference for field coverage. |
 | **afpdev/alpheusafpparser** (GitHub, Java, GPL) | Full parser covering MO:DCA + all OCAs; source of our 138-file test corpus. |
