@@ -19,6 +19,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Dict, Iterator, List, Optional, Tuple
 
+from readafp.bcoca import barcode_png, parse_barcode
 from readafp.ioca import cmyk_jpeg_bands, image_blob, parse_image_segment
 from readafp.parser import StructuredField
 from readafp.triplets import iter_triplets, parse_mcf_codepages
@@ -124,6 +125,8 @@ class ImageRef:
     data: bytes
     # CMYK plane JPEGs for band-interleaved images; data is empty then.
     bands: Optional[List[bytes]] = None
+    # Scale without smoothing (bar code symbols: one pixel per module).
+    crisp: bool = False
 
 
 @dataclass
@@ -652,6 +655,9 @@ def extract_pages(
     image_obd: Optional[bytes] = None
     image_obp: Optional[bytes] = None
     image_name: Optional[str] = None
+    in_barcode = False
+    barcode_bdd = b""
+    barcode_bdas: List[bytes] = []
 
     for f in fields:
         if f.sf_id == 0xD3A892:  # BOC opens an object container resource
@@ -694,12 +700,44 @@ def extract_pages(
                         if key:
                             image_resources.setdefault(key, obj)
                     loose_images.append(obj)
-        elif in_image and f.sf_id == 0xD3A66B:  # OBD: object area size
+        elif (in_image or in_barcode) and f.sf_id == 0xD3A66B:  # OBD
             image_obd = f.data
-        elif in_image and f.sf_id == 0xD3AC6B:  # OBP: object area origin
+        elif (in_image or in_barcode) and f.sf_id == 0xD3AC6B:  # OBP
             image_obp = f.data
         elif in_image and f.sf_id == 0xD3EEFB:  # IPD: IOCA segment bytes
             image_ipd += f.data
+        elif f.sf_id == 0xD3A8EB:  # BBC starts a bar code object
+            in_barcode = True
+            barcode_bdd = b""
+            barcode_bdas = []
+            image_obd = image_obp = None
+        elif in_barcode and f.sf_id == 0xD3A6EB:  # BDD: symbol descriptor
+            barcode_bdd = f.data
+        elif in_barcode and f.sf_id == 0xD3EEEB:  # BDA: one symbol each
+            barcode_bdas.append(f.data)
+        elif f.sf_id == 0xD3A9EB and in_barcode:  # EBC completes it
+            in_barcode = False
+            if current is not None:
+                ox, oy = _parse_obp(image_obp) if image_obp else (0, 0)
+                upi = current.units_per_inch
+                for bda in barcode_bdas:
+                    bar = parse_barcode(barcode_bdd, bda)
+                    generated = barcode_png(bar) if bar else None
+                    if generated is None:
+                        continue
+                    png, modules = generated
+                    side = round(modules * bar.module_mils * upi / 1000)
+                    current.images.append(
+                        ImageRef(
+                            x=ox + _scale(bar.x, bar.upi, upi),
+                            y=oy + _scale(bar.y, bar.upi, upi),
+                            width=side,
+                            height=side,
+                            mime="image/png",
+                            data=png,
+                            crisp=True,
+                        )
+                    )
         elif f.sf_id == 0xD3AFC3 and current is not None:  # IOB places one
             image = _parse_iob(
                 f.data, resources, image_resources, current.units_per_inch

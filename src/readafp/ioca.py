@@ -119,9 +119,13 @@ def _png_chunk(tag: bytes, body: bytes) -> bytes:
     )
 
 
-def _png(width: int, height: int, bit_depth: int, color_type: int,
-         row_bytes: int, pixels: bytes) -> bytes:
-    """Pack raw scanlines into a minimal PNG (filter 0 on every row)."""
+def pack_png(width: int, height: int, bit_depth: int, color_type: int,
+             row_bytes: int, pixels: bytes) -> bytes:
+    """Pack raw scanlines into a minimal PNG (filter 0 on every row).
+
+    ``pixels`` is the raster as PNG expects it: ``row_bytes`` bytes per
+    scanline, gray 0 = black (also used by bcoca for bar code symbols).
+    """
     ihdr = struct.pack(">IIBBBBB", width, height, bit_depth, color_type,
                        0, 0, 0)
     raster = bytearray()
@@ -158,18 +162,18 @@ def image_blob(img: IocaImage) -> Optional[Tuple[str, bytes]]:
             return None
         # IOCA bilevel: 1 = mark (black). PNG grayscale: 0 = black.
         inverted = bytes(b ^ 0xFF for b in img.data)
-        return "image/png", _png(img.width, img.height, 1, 0, row_bytes,
+        return "image/png", pack_png(img.width, img.height, 1, 0, row_bytes,
                                  inverted)
     if img.bits == 8:
         if len(img.data) < img.width * img.height:
             return None
-        return "image/png", _png(img.width, img.height, 8, 0, img.width,
+        return "image/png", pack_png(img.width, img.height, 8, 0, img.width,
                                  img.data)
     if img.bits == 24:
         row_bytes = img.width * 3
         if len(img.data) < row_bytes * img.height:
             return None
-        return "image/png", _png(img.width, img.height, 8, 2, row_bytes,
+        return "image/png", pack_png(img.width, img.height, 8, 2, row_bytes,
                                  img.data)
     return None
 

@@ -148,7 +148,9 @@ Useful link hub: Apache FOP "AFP Resources" wiki
   (German EBCDIC code page), plus per-architecture folders (GOCA,
   BCOCA, IOCA, line data, …).
 - Note: 7 files under `alpheus-corpus/external/` are saved HTML error
-  pages, not AFP — keep as negative-test fixtures.
+  pages, not AFP — keep as negative-test fixtures. Two others there
+  (`afplib_ende.afp`, `afplib_start.afp`) are valid afplib examples
+  and carry the corpus's only BCOCA bar codes (QR, version 18).
 - `github-samples/` — 16 Apache-2.0 files gathered 2026-06-12 from
   yan74/afplib and apache/xmlgraphics-fop (see its README). Headline:
   **9 files with real IOCA image objects** (`bim.afp` is the big one)
@@ -210,7 +212,9 @@ Milestones:
    bilevel/gray as PNG, JPEG pass-through, banded CMYK composited
    with SVG filters — inline, IOB-included, or standalone). Still to
    do: FOCA/embedded-TrueType metrics, CCITT-compressed IOCA, GOCA
-   vectors, BCOCA barcodes, text orientation (STO rotations).
+   vectors, text orientation (STO rotations). BCOCA QR codes are
+   generated with segno (the only added dependency besides Flask)
+   and placed from OBP + BSA offsets.
 5. 🔶 **Quality-of-life** — done: drag-and-drop upload (drop an .afp
    anywhere), copy-page-text and download-all-as-.txt buttons, zoom
    (fit width / 50–400%, where 100% = real size via the page's
@@ -266,7 +270,14 @@ Carried over from build sessions, roughly in priority order:
   detection by x-position clustering.
 - **Triplet detail view** — `iter_triplets()` exists; the inspector
   should decode and show triplets per field instead of a hex preview.
-- **GOCA / BCOCA objects** — vector graphics and barcodes. IOCA landed
+- **GOCA objects** — vector graphics. BCOCA landed 2026-06-12
+  (`src/readafp/bcoca.py`): BSD/BSA parsed from BDD/BDA, QR symbols
+  (the corpus's only symbology) generated with segno honoring the
+  declared version and error-correction level, sized from module
+  width in mils, drawn as bilevel PNGs with image-rendering:pixelated.
+  Round-trip verified with a zxing scan. Other symbologies (Code 39,
+  Code 128, ...) are skipped with a log message until a file needs
+  them. IOCA landed
   2026-06-12 (`src/readafp/ioca.py`): uncompressed bilevel/8-bit gray
   rebuilt as PNG, JPEG passed through, FS45 band-interleaved CMYK
   composited in SVG via per-ink color-matrix filters + multiply

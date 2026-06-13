@@ -45,7 +45,8 @@ def _image_markup(img: ImageRef) -> str:
     )
     if not img.bands:
         b64 = base64.b64encode(img.data).decode("ascii")
-        return f'<image {box} href="data:{img.mime};base64,{b64}"/>'
+        crisp = ' style="image-rendering:pixelated"' if img.crisp else ""
+        return f'<image {box}{crisp} href="data:{img.mime};base64,{b64}"/>'
     parts = ['<g style="isolation:isolate">']
     for ink, blob in zip("cmyk", img.bands):
         b64 = base64.b64encode(blob).decode("ascii")
