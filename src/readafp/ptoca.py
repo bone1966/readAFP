@@ -16,7 +16,7 @@ Reference: PTOCA Reference, AFPC-0009-04 (docs/specs/ptoca-reference-04.pdf).
 """
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Dict, Iterator, List, Optional, Tuple
 
 from readafp.bcoca import barcode_png, parse_barcode
@@ -679,6 +679,9 @@ def extract_pages(
     image_resources: Dict[str, _ImageObject] = {}
     loose_images: List[_ImageObject] = []
     resource_name: Optional[str] = None  # enclosing BRS or BPS token
+    overlays: Dict[str, Page] = {}  # BMO...EMO content, by name, for IPO
+    in_overlay = False
+    overlay_name: Optional[str] = None
     in_image = False
     image_ipd = bytearray()
     image_obd: Optional[bytes] = None
@@ -798,6 +801,21 @@ def extract_pages(
             )
             if image is not None:
                 current.images.append(image)
+        elif f.sf_id == 0xD3AFD8 and current is not None:  # IPO: place overlay
+            _include_overlay(current, overlays, f.data)
+        elif f.sf_id == 0xD3A8DF:  # BMO: capture an overlay like a page
+            current = Page()
+            if pgd_default:
+                current.width, current.height, current.units_per_inch = pgd_default
+            state = _TextState(fonts, codepage, font_codepages)
+            in_overlay = True
+            overlay_name = (f.token_name or "").strip()
+        elif f.sf_id == 0xD3A9DF:  # EMO: store the captured overlay by name
+            if current is not None and in_overlay:
+                _estimate_font_sizes(current, fonts)
+                if overlay_name:
+                    overlays[overlay_name] = current
+            current, state, in_overlay, overlay_name = None, None, False, None
         elif f.sf_id == 0xD3A8AF:  # BPG
             current = Page()
             if pgd_default:
@@ -867,6 +885,66 @@ def extract_pages(
             )
             pages.append(page)
     return pages
+
+
+def _include_overlay(
+    page: Page, overlays: Dict[str, Page], ipo: bytes
+) -> None:
+    """Composite a named page overlay onto a page (IPO field).
+
+    IPO layout: overlay name (8 EBCDIC bytes) then signed 3-byte X and Y
+    offsets, in the including page's L-units. The overlay's text, rules,
+    images and graphics are copied in, shifted by the offset and scaled
+    if the overlay declared a different resolution. Overlay content is
+    appended before the page's own body (IPO precedes it), so it renders
+    underneath like a form or letterhead.
+    """
+    try:
+        name = ipo[:8].decode("cp500").strip()
+    except UnicodeDecodeError:
+        return
+    overlay = overlays.get(name)
+    if overlay is None:
+        return
+    ox = int.from_bytes(ipo[8:11], "big", signed=True) if len(ipo) >= 11 else 0
+    oy = int.from_bytes(ipo[11:14], "big", signed=True) if len(ipo) >= 14 else 0
+    src_upi = overlay.units_per_inch or page.units_per_inch
+    dst_upi = page.units_per_inch
+
+    def sx(v: int) -> int:
+        return ox + _scale(v, src_upi, dst_upi)
+
+    def sy(v: int) -> int:
+        return oy + _scale(v, src_upi, dst_upi)
+
+    def sz(v: int) -> int:
+        return _scale(v, src_upi, dst_upi)
+
+    for t in overlay.texts:
+        page.texts.append(
+            replace(t, x=sx(t.x), y=sy(t.y), font_size=sz(t.font_size))
+        )
+    for r in overlay.rules:
+        page.rules.append(
+            replace(
+                r, x=sx(r.x), y=sy(r.y),
+                length=sz(r.length), thickness=sz(r.thickness),
+            )
+        )
+    for im in overlay.images:
+        page.images.append(
+            replace(
+                im, x=sx(im.x), y=sy(im.y),
+                width=sz(im.width), height=sz(im.height),
+            )
+        )
+    for g in overlay.graphics:
+        page.graphics.append(
+            replace(
+                g, x=sx(g.x), y=sy(g.y),
+                width=sz(g.width), height=sz(g.height),
+            )
+        )
 
 
 def _font_specimen_pages(fonts: List[Font]) -> List[Page]:

@@ -94,6 +94,17 @@ SAMPLES = [
             "and draws it crisp. Scan it: it points to this project's repo."
         ),
     },
+    {
+        "name": "overlay_demo",
+        "file": "overlay_demo.afp",
+        "label": "Page overlay (letterhead)",
+        "desc": (
+            "One page whose letterhead, rule and footer come from a reusable "
+            "overlay (BMO/EMO) defined once and pulled in with a single "
+            "Include Page Overlay (IPO) field — how AFP shares forms across "
+            "many pages. readAFP composites the overlay beneath the body text."
+        ),
+    },
 ]
 
 

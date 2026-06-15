@@ -257,6 +257,74 @@ def test_fop_pair_font_sizes_from_baseline_pitch() -> None:
     assert 30 <= body.font_size <= 48
 
 
+def _ebc(s: str) -> bytes:
+    return s.encode("cp500").ljust(8, b"\x40")
+
+
+def _ipo_bytes(name: str, x: int, y: int) -> bytes:
+    return _ebc(name) + x.to_bytes(3, "big", signed=True) + y.to_bytes(
+        3, "big", signed=True
+    )
+
+
+def test_page_overlay_composited_with_offset() -> None:
+    # Overlay LETTERHD draws "HEAD" at (700, 800); the page includes it
+    # via IPO at offset (100, 200) and adds its own "BODY".
+    ov = (
+        bytes.fromhex("2bd3")
+        + bytes([4, 0xC7]) + b"\x02\xbc"          # AMI 700
+        + bytes([4, 0xD3]) + b"\x03\x20"          # AMB 800
+        + bytes([2 + 4, 0xDA]) + "HEAD".encode("cp500")
+    )
+    body = (
+        bytes.fromhex("2bd3")
+        + bytes([4, 0xC7]) + b"\x07\xd0"          # AMI 2000
+        + bytes([4, 0xD3]) + b"\x0b\xb8"          # AMB 3000
+        + bytes([2 + 4, 0xDA]) + "BODY".encode("cp500")
+    )
+    doc = (
+        _sf(0xD3A8A8)
+        + _sf(0xD3A8DF, _ebc("LETTERHD"))         # BMO
+        + _sf(0xD3EE9B, ov)                       # overlay PTX
+        + _sf(0xD3A9DF, _ebc("LETTERHD"))         # EMO
+        + _sf(0xD3A8AF)                           # BPG
+        + _sf(0xD3AFD8, _ipo_bytes("LETTERHD", 100, 200))  # IPO
+        + _sf(0xD3EE9B, body)                     # page PTX
+        + _sf(0xD3A9AF)                           # EPG
+        + _sf(0xD3A9A8)
+    )
+    pages = extract_pages(list(iter_fields(doc)))
+    assert len(pages) == 1  # overlay must not become its own page
+    page = pages[0]
+    texts = {t.text: (t.x, t.y) for t in page.texts}
+    assert texts["BODY"] == (2000, 3000)
+    assert texts["HEAD"] == (800, 1000)  # 700+100, 800+200
+
+
+def test_unincluded_overlay_renders_nothing() -> None:
+    # An overlay defined but never referenced by an IPO contributes no page.
+    ov = bytes.fromhex("2bd3") + bytes([2 + 2, 0xDA]) + "HI".encode("cp500")
+    doc = (
+        _sf(0xD3A8A8)
+        + _sf(0xD3A8DF, _ebc("ORPHAN"))
+        + _sf(0xD3EE9B, ov)
+        + _sf(0xD3A9DF, _ebc("ORPHAN"))
+        + _sf(0xD3A9A8)
+    )
+    assert extract_pages(list(iter_fields(doc))) == []
+
+
+def test_real_overlay_text_lands_on_page() -> None:
+    sample = TESTDATA / "alpheus-corpus" / "external" / "afplib_ende.afp"
+    if not sample.exists():
+        pytest.skip("afplib sample not present")
+    pages = extract_pages(parse_file(str(sample)))
+    # The included overlay carries text; it must appear on a real page,
+    # not leak onto spurious implicit pages.
+    assert len(pages) == 1
+    assert pages[0].texts and "ENDE" in pages[0].plain_text
+
+
 def test_extract_pages_empty_document() -> None:
     sample = TESTDATA / "alpheus-corpus" / "minimal.afp"
     if not sample.exists():
