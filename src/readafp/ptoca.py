@@ -114,6 +114,7 @@ class TextRun:
     font_weight: str = "normal"
     orientation: int = 0  # clockwise degrees (0/90/180/270) from STO
     src: Optional[int] = None  # offset of the PTX field that produced it
+    fit: bool = True  # allow width-fitting; False for fixed synthetic layout
 
 
 @dataclass
@@ -948,10 +949,12 @@ def _include_overlay(
 
 
 def _font_specimen_pages(fonts: List[Font]) -> List[Page]:
-    """Lay out each raster font's glyphs as a labeled specimen sheet.
+    """Lay out each embedded font as a labeled specimen sheet.
 
-    Returns one page per raster font that decoded glyph bitmaps; outline
-    fonts (no glyph images) and the trivial space pattern are skipped.
+    Raster fonts get one page of decoded glyph bitmaps. Outline (Type 1 /
+    CID) fonts, whose shapes we do not rasterize, instead get a metadata
+    page listing the typeface, technology and per-character increments so
+    the file is not rendered blank. The trivial space pattern is skipped.
     """
     upi = 1440
     page_w = 12240
@@ -967,6 +970,8 @@ def _font_specimen_pages(fonts: List[Font]) -> List[Page]:
     for font in fonts:
         glyphs = [g for g in font.glyphs if g.width >= 3 and g.height >= 3]
         if not glyphs:
+            if font.is_outline and font.chars:
+                pages.append(_outline_font_page(font))
             continue
         cols = max(1, (page_w - 2 * margin) // cell_w)
         rows = (len(glyphs) + cols - 1) // cols
@@ -1015,8 +1020,109 @@ def _font_specimen_pages(fonts: List[Font]) -> List[Page]:
                     font_family="Consolas",
                 )
             )
+        for t in page.texts:  # fixed grid layout: never width-fit
+            t.fit = False
         pages.append(page)
     return pages
+
+
+# Outline fonts have no bitmaps; the metadata page shows up to this many
+# character metrics before summarizing the remainder.
+_OUTLINE_CHARS_SHOWN = 256
+
+
+def _outline_font_page(font: Font) -> Page:
+    """Build a metadata page for an outline font (no glyph shapes).
+
+    Lists the typeface, pattern technology and a grid of GCGID + inline
+    increment from the Font Index, so the file surfaces its contents
+    instead of rendering blank. Long fonts are truncated with a count of
+    the remaining characters.
+    """
+    upi = 1440
+    page_w = 12240
+    margin = 600
+    title_size = 440  # ~22pt
+    sub_size = 220  # ~11pt
+    label_size = 200  # ~10pt
+    # Three columns when a Font Name Map gives readable glyph names (which
+    # need the extra width); otherwise four columns of bare GCGIDs.
+    named = any(c.name for c in font.chars)
+    cols = 3 if named else 4
+    cell_w = (page_w - 2 * margin) // cols
+    row_h = 340
+    grid_top = 1640
+
+    chars = font.chars[:_OUTLINE_CHARS_SHOWN]
+    remaining = len(font.chars) - len(chars)
+    rows = (len(chars) + cols - 1) // cols
+    extra = 1 if remaining else 0
+    page = Page(
+        width=page_w,
+        height=grid_top + (rows + extra) * row_h + margin,
+        units_per_inch=upi,
+    )
+
+    label = font.typeface or font.name or "embedded font"
+    page.texts.append(
+        TextRun(
+            x=margin, y=margin,
+            text=f"Embedded outline font: {label}",
+            font_size=title_size, font_weight="bold",
+        )
+    )
+    orient = (
+        f" × {font.orientations} orientations" if font.orientations > 1 else ""
+    )
+    page.texts.append(
+        TextRun(
+            x=margin, y=margin + sub_size + 160,
+            text=f"{font.tech_label} — {len(font.chars)} characters{orient}; "
+                 f"glyph shapes not rasterized",
+            color="#666666", font_size=sub_size,
+        )
+    )
+    heading = (
+        "GCGID · glyph name · inline increment (font design units):"
+        if named
+        else "GCGID + inline increment (font design units):"
+    )
+    page.texts.append(
+        TextRun(
+            x=margin, y=margin + 2 * (sub_size + 160),
+            text=heading,
+            color="#666666", font_size=sub_size,
+        )
+    )
+
+    for i, cm in enumerate(chars):
+        col, row = i % cols, i // cols
+        gid = cm.gcgid or "?"
+        cell = f"{gid:<8}  {cm.name}  {cm.char_increment}" if named \
+            else f"{gid:<8}  {cm.char_increment}"
+        page.texts.append(
+            TextRun(
+                x=margin + col * cell_w,
+                y=grid_top + row * row_h,
+                text=cell,
+                color="#444444",
+                font_size=label_size,
+                font_family="Consolas",
+            )
+        )
+    if remaining:
+        page.texts.append(
+            TextRun(
+                x=margin,
+                y=grid_top + rows * row_h + row_h // 2,
+                text=f"... and {remaining} more characters",
+                color="#666666",
+                font_size=sub_size,
+            )
+        )
+    for t in page.texts:  # fixed grid layout: never width-fit
+        t.fit = False
+    return page
 
 
 def _paginate_implicit(page: Page) -> List[Page]:

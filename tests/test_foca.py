@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from readafp.foca import PATTECH_RASTER, parse_fonts
+from readafp.foca import PATTECH_CID, PATTECH_RASTER, parse_fonts
 from readafp.parser import iter_fields, parse_file
 from readafp.ptoca import extract_pages
 from readafp.render import page_to_svg
@@ -37,13 +37,75 @@ def test_parse_raster_fonts_from_sample1() -> None:
     assert (w, h) == (g.width, g.height) and w > 1 and h > 1
 
 
-def test_outline_font_has_no_glyph_bitmaps() -> None:
+def test_outline_font_has_metrics_but_no_bitmaps() -> None:
     if not OUTLINE.exists():
         pytest.skip("outline font fixture not present")
     fonts = parse_fonts(parse_file(str(OUTLINE)))
-    assert fonts and not fonts[0].is_raster
-    assert fonts[0].glyphs == []  # Type 1 outline data is not rasterized
-    assert fonts[0].typeface  # descriptor name still decoded
+    font = fonts[0]
+    assert font.is_outline and not font.is_raster
+    assert font.pattern_tech == PATTECH_CID  # FNC PatTech byte X'1F'
+    # The real format is read from the embedded program, not the PatTech.
+    assert font.tech_label == "Adobe Type 1 (PFB) outline"
+    assert font.glyphs == []  # outline shape data is not rasterized
+    assert font.typeface  # descriptor name still decoded
+    # FNI metrics are recovered even without glyph shapes.
+    assert font.chars, "no character metrics decoded"
+    assert all(c.gcgid for c in font.chars)
+    assert any(c.char_increment > 0 for c in font.chars)
+
+
+def test_outline_font_dedups_orientations() -> None:
+    if not OUTLINE.exists():
+        pytest.skip("outline font fixture not present")
+    font = parse_fonts(parse_file(str(OUTLINE)))[0]
+    # The FNI lists each character once per rotation; chars is collapsed
+    # to one entry per GCGID and the rotation count is reported separately.
+    assert font.orientations == 4
+    gcgids = [c.gcgid for c in font.chars]
+    assert len(gcgids) == len(set(gcgids)), "duplicate GCGIDs not collapsed"
+    # The retained record is the primary (0 degrees) orientation: these
+    # are the exact Helvetica per-mille advances.
+    widths = {c.gcgid: c.char_increment for c in font.chars}
+    assert widths["LM010000"] == 833  # 'm'
+    assert widths["LO010000"] == 556  # 'o'
+    assert widths["LF010000"] == 278  # 'f'
+
+
+def test_outline_specimen_text_is_not_width_fitted() -> None:
+    if not OUTLINE.exists():
+        pytest.skip("outline font fixture not present")
+    page = extract_pages(list(iter_fields(OUTLINE.read_bytes())))[0]
+    # The grid is fixed-layout, so no run may carry the fitting flag and
+    # the rendered SVG must not stretch any cell with textLength.
+    assert all(not t.fit for t in page.texts)
+    assert "textLength" not in page_to_svg(page)
+
+
+def test_outline_font_resolves_glyph_names() -> None:
+    if not OUTLINE.exists():
+        pytest.skip("outline font fixture not present")
+    font = parse_fonts(parse_file(str(OUTLINE)))[0]
+    names = {c.gcgid: c.name for c in font.chars}
+    # The Font Name Map gives PostScript glyph names for every character.
+    assert all(c.name for c in font.chars), "some GCGIDs left unnamed"
+    assert names["LA010000"] == "a"
+    assert names["GA010000"] == "alpha"
+    assert names["GD010000"] == "delta"
+
+
+def test_outline_font_renders_metadata_page() -> None:
+    if not OUTLINE.exists():
+        pytest.skip("outline font fixture not present")
+    pages = extract_pages(list(iter_fields(OUTLINE.read_bytes())))
+    assert len(pages) == 1, "outline font must not render blank"
+    page = pages[0]
+    assert not page.images  # no rasterized glyphs
+    assert page.texts[0].text.startswith("Embedded outline font:")
+    assert any("not rasterized" in t.text for t in page.texts)
+    # The character grid lists GCGID + increment entries.
+    assert any(t.font_family == "Consolas" for t in page.texts)
+    svg = page_to_svg(page)
+    assert "Embedded outline font" in svg
 
 
 def test_typeface_name_strips_grid_suffix() -> None:

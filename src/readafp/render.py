@@ -71,6 +71,10 @@ def _fit(texts, i) -> str:
     gaps and short runs from triggering visible distortion.
     """
     run = texts[i]
+    if not run.fit:
+        # Synthetic fixed-layout text (e.g. font specimen grids) is placed
+        # at exact column positions and must not be stretched to fill them.
+        return ""
     if run.orientation:
         # textLength stretches along the horizontal axis; a rotated run's
         # advance is not horizontal, so the implied-width fit doesn't apply.

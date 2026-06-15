@@ -36,15 +36,26 @@ FND = 0xD3A689  # Font Descriptor
 FNI = 0xD38C89  # Font Index
 FNM = 0xD3A289  # Font Patterns Map
 FNG = 0xD3EE89  # Font Patterns
+FNN = 0xD3AB89  # Font Name Map (GCGID -> character name)
 
 # FNC byte 1, Pattern Technology Identifier.
 PATTECH_RASTER = 0x05  # Laser Matrix N-bit Wide (bitmap glyphs)
+PATTECH_TYPE1 = 0x1E  # Adobe Type 1 (PFB) outline
+PATTECH_CID = 0x1F  # CID-keyed outline
+
+# Human-readable labels for the pattern technologies we recognize.
+_PATTECH_LABELS = {
+    PATTECH_RASTER: "laser-matrix raster",
+    PATTECH_TYPE1: "Type 1 (PFB) outline",
+    PATTECH_CID: "CID-keyed outline",
+}
 
 # Pattern-data alignment factor, keyed by FNC byte 16 (PatAlign).
 _ALIGN = {0x00: 1, 0x02: 4, 0x03: 8}
 
 # Bounds so a pathological font cannot blow up the render.
 _MAX_GLYPHS = 1024
+_MAX_CHARS = 4096  # FNI metric records (outline fonts have no bitmaps)
 _MAX_PATTERN_BYTES = 1 << 20  # 1 MiB per glyph bitmap
 
 
@@ -60,6 +71,19 @@ class Glyph:
 
 
 @dataclass
+class CharMetric:
+    """One character's identity and inline advance, with no shape data.
+
+    Outline fonts carry these in the Font Index even though their glyph
+    outlines are vendor data we do not rasterize.
+    """
+
+    gcgid: str  # Graphic Character Global Identifier
+    char_increment: int  # inline advance, in the font's design units
+    name: str = ""  # readable character name from the Font Name Map
+
+
+@dataclass
 class Font:
     """One BFN...EFN font character set."""
 
@@ -67,10 +91,26 @@ class Font:
     typeface: str  # FND descriptive name, e.g. "TIMES-ROMAN"
     pattern_tech: int  # FNC PatTech
     glyphs: List[Glyph] = field(default_factory=list)
+    chars: List[CharMetric] = field(default_factory=list)  # unique outline
+    orientations: int = 1  # distinct rotations the FNI lists per character
+    outline_format: str = ""  # detected from FNG payload, e.g. Type 1 PFB
 
     @property
     def is_raster(self) -> bool:
         return self.pattern_tech == PATTECH_RASTER
+
+    @property
+    def is_outline(self) -> bool:
+        return self.pattern_tech in (PATTECH_TYPE1, PATTECH_CID)
+
+    @property
+    def tech_label(self) -> str:
+        """Human-readable technology, preferring the FNG-detected format."""
+        if self.outline_format:
+            return self.outline_format
+        return _PATTECH_LABELS.get(
+            self.pattern_tech, f"unknown (X'{self.pattern_tech:02X}')"
+        )
 
 
 def _decode_name(raw: bytes) -> str:
@@ -148,16 +188,99 @@ def _decode_raster_glyphs(
     return glyphs
 
 
+def _fni_metrics(fnc: bytes, fni: bytes) -> List[CharMetric]:
+    """Read GCGID + inline increment from the Font Index, ignoring shapes.
+
+    Each FNI record is ``fnc[15]`` bytes (default 28): GCGID (8 EBCDIC
+    bytes) then the 2-byte character increment. Outline fonts use the
+    minimal 10-byte record with no Font Patterns Map index.
+    """
+    fni_rg = fnc[15] if len(fnc) > 15 else 28
+    if fni_rg < 10:
+        return []
+    out: List[CharMetric] = []
+    for i in range(0, len(fni) - fni_rg + 1, fni_rg):
+        gcgid = _decode_name(fni[i : i + 8])
+        char_inc = struct.unpack(">H", fni[i + 8 : i + 10])[0]
+        out.append(CharMetric(gcgid=gcgid, char_increment=char_inc))
+        if len(out) >= _MAX_CHARS:
+            break
+    return out
+
+
+def _fnn_glyph_names(fnn: bytes) -> Dict[str, str]:
+    """Map each GCGID to its readable character name from the Name Map.
+
+    FNN is a 2-byte header, then 12-byte records (8-byte GCGID + a 4-byte
+    offset), then a pool of length-prefixed names. Offsets index the whole
+    FNN stream and the length byte counts itself, so an N-letter name has
+    a stored length of N+1. The record table runs until it meets the name
+    pool, where a "GCGID" no longer decodes to a letter-led token.
+    """
+    names: Dict[str, str] = {}
+    i = 2
+    while i + 12 <= len(fnn) and len(names) < _MAX_CHARS:
+        gcgid = _decode_name(fnn[i : i + 8])
+        off = struct.unpack(">I", fnn[i + 8 : i + 12])[0]
+        i += 12
+        if not gcgid or not gcgid[0].isalpha():
+            break  # reached the name pool
+        if off >= len(fnn):
+            continue
+        ln = fnn[off]
+        if ln < 2:
+            continue
+        try:
+            names[gcgid] = fnn[off + 1 : off + ln].decode("ascii")
+        except UnicodeDecodeError:
+            continue
+    return names
+
+
+def _sniff_outline_format(fng: bytes) -> str:
+    """Identify an outline font program from its FNG payload signature.
+
+    The FNG bytes embed the vendor font program; its header reveals the
+    real technology (e.g. an Adobe Type 1 PFB starts with the PostScript
+    ``%!PS-AdobeFont`` banner). Returns "" when no signature is matched,
+    so the caller falls back to the FNC pattern-technology label.
+    """
+    head = fng[:512]
+    if b"%!PS-AdobeFont" in head or b".PFB" in head:
+        return "Adobe Type 1 (PFB) outline"
+    if b"OTTO" in head[:64] or head[:4] == b"\x01\x00\x04\x00":
+        return "CFF / CID-keyed outline"
+    return ""
+
+
+def _dedup_orientations(raw: List[CharMetric]) -> tuple:
+    """Collapse per-orientation FNI records to one entry per character.
+
+    Outline fonts list every character once per rotation (0/90/180/270),
+    so a 374-glyph font yields 1496 FNI records. Keep the first (primary
+    orientation) record per GCGID and report how many orientations the
+    index carried.
+    """
+    seen: Dict[str, CharMetric] = {}
+    for cm in raw:
+        seen.setdefault(cm.gcgid, cm)
+    chars = list(seen.values())
+    orientations = len(raw) // len(chars) if chars else 1
+    return chars, max(1, orientations)
+
+
 def parse_fonts(fields: List[StructuredField]) -> List[Font]:
     """Extract every BFN...EFN font character set from a parsed file.
 
-    Raster fonts gain decoded glyph bitmaps; outline fonts parse to a
-    metrics-only Font (typeface name and technology, no glyph images).
+    Raster fonts gain decoded glyph bitmaps; outline (Type 1 / CID) fonts
+    parse to a Font carrying its typeface, technology and FNI character
+    metrics (GCGID + increment), but no glyph images — the vendor outline
+    shapes are not rasterized.
     """
     fonts: List[Font] = []
     name = ""
     fnc = fnd = b""
-    fni = fnm = fng = b""
+    fni = fnm = fng = fnn = b""
     in_font = False
 
     for f in fields:
@@ -165,7 +288,7 @@ def parse_fonts(fields: List[StructuredField]) -> List[Font]:
             in_font = True
             name = _decode_name(f.data[:8])
             fnc = fnd = b""
-            fni = fnm = fng = b""
+            fni = fnm = fng = fnn = b""
         elif not in_font:
             continue
         elif f.sf_id == FNC:
@@ -178,24 +301,44 @@ def parse_fonts(fields: List[StructuredField]) -> List[Font]:
             fnm += f.data
         elif f.sf_id == FNG:
             fng += f.data
+        elif f.sf_id == FNN:
+            fnn += f.data
         elif f.sf_id == EFN:
             in_font = False
             tech = fnc[1] if len(fnc) > 1 else 0
             typeface = _decode_name(fnd[:32]) if fnd else ""
             typeface = typeface.split("@")[0].strip()  # drop GRID suffix
             glyphs: List[Glyph] = []
+            chars: List[CharMetric] = []
+            orientations = 1
+            outline_format = ""
             if tech == PATTECH_RASTER and fnm and fng:
                 try:
                     glyphs = _decode_raster_glyphs(fnc, fni, fnm, fng)
                 except (struct.error, IndexError) as exc:
                     logger.warning("FOCA glyph decode failed for %s: %s",
                                    name, exc)
+            elif tech in (PATTECH_TYPE1, PATTECH_CID) and fni:
+                try:
+                    chars, orientations = _dedup_orientations(
+                        _fni_metrics(fnc, fni)
+                    )
+                    glyph_names = _fnn_glyph_names(fnn) if fnn else {}
+                    for cm in chars:
+                        cm.name = glyph_names.get(cm.gcgid, "")
+                except (struct.error, IndexError) as exc:
+                    logger.warning("FOCA FNI metrics decode failed for "
+                                   "%s: %s", name, exc)
+                outline_format = _sniff_outline_format(fng)
             fonts.append(
                 Font(
                     name=name,
                     typeface=typeface,
                     pattern_tech=tech,
                     glyphs=glyphs,
+                    chars=chars,
+                    orientations=orientations,
+                    outline_format=outline_format,
                 )
             )
     return fonts
