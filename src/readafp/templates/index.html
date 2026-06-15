@@ -183,6 +183,10 @@
       display: flex; flex-direction: column; gap: 14px;
     }
     .about-body h2 { margin: 0 0 2px; font-size: 1.3rem; }
+    .about-body h2 .ver {
+      font-size: 0.8rem; font-weight: 500; color: var(--accent);
+      vertical-align: middle; margin-left: 4px;
+    }
     .about-body p { margin: 0; line-height: 1.55; font-size: 0.9rem; color: var(--dim); }
     .about-body p strong { color: var(--text); }
     .about-body a { color: var(--accent); text-decoration: none; }
@@ -509,13 +513,14 @@
     </div>
     <div class="about-body">
       <div>
-        <h2>readAFP</h2>
+        <h2>readAFP <span class="ver">v{{ app_version }}</span></h2>
         <p>AFP / MO:DCA file inspector and SVG renderer</p>
       </div>
       <hr>
       <p>Vibe-coded by
         <a id="author-email" href="#"><strong>Keith Lutz</strong></a>, 2026</p>
       <p>Built with <strong>Claude (Anthropic)</strong> via <strong>Fable5</strong></p>
+      <p>Written in <strong>Python {{ python_version }}</strong></p>
       <hr>
       <p>
         <a href="https://github.com/bone1966/readAFP" target="_blank" rel="noopener">

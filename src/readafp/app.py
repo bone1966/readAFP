@@ -1,12 +1,14 @@
 """readAFP web app: upload an AFP file, inspect its structure, render pages."""
 
 import logging
+import platform
 from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List
 
 from flask import Flask, abort, render_template, request
 
+from readafp import __version__
 from readafp.parser import AfpParseError, StructuredField, iter_fields
 from readafp.ptoca import extract_pages
 from readafp.render import pages_to_svgs
@@ -112,6 +114,14 @@ def create_app() -> Flask:
     """Build the Flask application."""
     app = Flask(__name__)
     app.config["MAX_CONTENT_LENGTH"] = MAX_UPLOAD_BYTES
+
+    @app.context_processor
+    def inject_version() -> Dict[str, str]:
+        """Expose the app and runtime Python versions to every template."""
+        return {
+            "app_version": __version__,
+            "python_version": platform.python_version(),
+        }
 
     @app.get("/")
     def index() -> str:
