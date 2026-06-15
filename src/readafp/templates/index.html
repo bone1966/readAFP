@@ -3,7 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>readAFP — AFP file inspector</title>
+  <title>readAFP — AFP / MO:DCA file inspector &amp; renderer</title>
+  <meta name="description" content="Upload an AFP (Advanced Function Presentation / MO:DCA) file and explore its structured-field tree alongside an SVG render of every page. Decodes PTOCA text, IOCA images, BCOCA bar codes, and GOCA vector graphics.">
+  <meta name="author" content="Keith Lutz">
+  <meta name="keywords" content="AFP, MO:DCA, Advanced Function Presentation, AFP viewer, AFP inspector, PTOCA, IOCA, BCOCA, GOCA, mainframe print">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="readAFP — AFP file inspector &amp; renderer">
+  <meta property="og:description" content="Inspect and render AFP (MO:DCA) files in your browser. Structured-field tree, decoded triplets, SVG render of PTOCA text, IOCA images, BCOCA bar codes, and GOCA vector graphics.">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="readAFP — AFP file inspector &amp; renderer">
+  <meta name="twitter:description" content="Inspect and render AFP / MO:DCA files. Structured-field tree + SVG render — PTOCA, IOCA, BCOCA, GOCA all supported.">
   <style>
     :root {
       --bg: #12141d; --panel: #1a1d29; --card: #232737; --border: #313650;
@@ -36,8 +45,9 @@
       color: var(--warn); padding: 12px 16px; border-radius: 10px; margin-bottom: 20px;
     }
     .meta { color: var(--dim); margin: 0; font-size: 0.85rem; }
+    .topbar-right { margin-left: auto; display: flex; gap: 10px; align-items: center; }
     .view-toggle { display: flex; gap: 0; border: 1px solid var(--border);
-      border-radius: 8px; overflow: hidden; margin-left: auto; }
+      border-radius: 8px; overflow: hidden; }
     .view-toggle button {
       background: var(--panel); color: var(--dim); border-radius: 0;
       font-weight: 500; padding: 5px 14px;
@@ -142,6 +152,36 @@
     }
     @keyframes runflash { 50% { opacity: 0.2; } }
     .render-note { color: #aab0c6; font-size: 0.8rem; }
+    .btn-ghost {
+      background: transparent; border: 1px solid var(--border); color: var(--dim);
+      font-weight: 500; font-size: 0.85rem; padding: 4px 12px;
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+    #about-dlg {
+      background: var(--panel); color: var(--text); border: 1px solid var(--border);
+      border-radius: 14px; padding: 0; max-width: 420px; width: 90%;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.7);
+    }
+    #about-dlg::backdrop { background: rgba(0,0,0,0.55); }
+    .about-body {
+      padding: 28px 32px 28px;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+    .about-body h2 { margin: 0 0 2px; font-size: 1.3rem; }
+    .about-body p { margin: 0; line-height: 1.55; font-size: 0.9rem; color: var(--dim); }
+    .about-body p strong { color: var(--text); }
+    .about-body a { color: var(--accent); text-decoration: none; }
+    .about-body a:hover { text-decoration: underline; }
+    .about-body hr { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+    .about-close-row {
+      display: flex; justify-content: flex-end; padding: 10px 14px 0;
+    }
+    .about-close {
+      background: transparent; border: none; color: var(--dim); font-size: 1.1rem;
+      cursor: pointer; padding: 2px 6px; line-height: 1;
+    }
+    .about-close:hover { color: var(--text); }
   </style>
 </head>
 <body>
@@ -161,14 +201,17 @@
       {{ "{:,}".format(fields|length) }} structured fields
       {% if page_total %} · {{ page_total }} page{{ "s" if page_total != 1 }}{% endif %}
       {% if mcf_note %} · code page from MCF: {{ mcf_note }}{% endif %}</span>
-    {% if page_svgs %}
-    <div class="view-toggle" role="group" aria-label="View mode">
-      <button type="button" data-view="inspect-only">Inspect</button>
-      <button type="button" data-view="" class="active">Split</button>
-      <button type="button" data-view="render-only">Render</button>
+    {% endif %}
+    <div class="topbar-right">
+      {% if fields and page_svgs %}
+      <div class="view-toggle" role="group" aria-label="View mode">
+        <button type="button" data-view="inspect-only">Inspect</button>
+        <button type="button" data-view="" class="active">Split</button>
+        <button type="button" data-view="render-only">Render</button>
+      </div>
+      {% endif %}
+      <button type="button" id="about-btn" class="btn-ghost" title="About readAFP">About</button>
     </div>
-    {% endif %}
-    {% endif %}
   </div>
 
   {% if error %}<div class="error">{{ error }}</div>{% endif %}
@@ -256,7 +299,7 @@
         {% if page_total > page_svgs|length %}
         <span class="render-note">(first {{ page_svgs|length }} of {{ page_total }} rendered)</span>
         {% endif %}
-        <span class="render-note">· rough render: text, rules &amp; container images — no IOCA/GOCA yet</span>
+        <span class="render-note">· SVG render: text, rules, IOCA images, BCOCA bar codes &amp; GOCA vector graphics</span>
       </div>
       <div id="sheet-wrap">
         <div class="sheet" id="sheet">{{ page_svgs[0]|safe }}</div>
@@ -441,6 +484,28 @@
   </script>
   {% endif %}
 
+  <dialog id="about-dlg" aria-label="About readAFP">
+    <div class="about-close-row">
+      <button class="about-close" id="about-close" aria-label="Close">✕</button>
+    </div>
+    <div class="about-body">
+      <div>
+        <h2>readAFP</h2>
+        <p>AFP / MO:DCA file inspector and SVG renderer</p>
+      </div>
+      <hr>
+      <p>Vibe-coded by <strong>Keith Lutz</strong>, 2026</p>
+      <p>Built with <strong>Claude (Anthropic)</strong> via <strong>Fable</strong></p>
+      <hr>
+      <p>
+        <a href="https://github.com/bone1966/readAFP" target="_blank" rel="noopener">
+          View source on GitHub →
+        </a>
+      </p>
+      <p>Released under the <strong>MIT License</strong> — free to use, fork, and improve.</p>
+    </div>
+  </dialog>
+
   <script>
     // Drag-and-drop upload: drop an .afp anywhere on the page.
     const dropInput = document.querySelector('input[type=file]');
@@ -461,6 +526,13 @@
         dropForm.submit();
       }
     });
+
+    const aboutBtn = document.getElementById("about-btn");
+    const aboutDlg = document.getElementById("about-dlg");
+    const aboutClose = document.getElementById("about-close");
+    aboutBtn.addEventListener("click", () => aboutDlg.showModal());
+    aboutClose.addEventListener("click", () => aboutDlg.close());
+    aboutDlg.addEventListener("click", (e) => { if (e.target === aboutDlg) aboutDlg.close(); });
   </script>
 </body>
 </html>
