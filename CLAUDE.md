@@ -24,12 +24,13 @@ src/readafp/
   ioca.py      # IOCA image segment decoder → IocaImage / PNG / JPEG
   bcoca.py     # BCOCA bar code decoder → BarCode + QR PNG via segno
   goca.py      # GOCA drawing-order decoder → GocaGraphic / SVG fragment
+  foca.py      # FOCA raster-font decoder → Font / Glyph bitmaps (PNG)
   app.py       # Flask app (POST /inspect), create_app()
   templates/index.html   # split-pane UI
 
 tests/
   test_parser.py, test_ptoca.py, test_triplets.py,
-  test_ioca.py, test_bcoca.py, test_app.py
+  test_ioca.py, test_bcoca.py, test_app.py, test_foca.py, test_goca.py
 
 testdata/
   sample1_health/     # modern TrueType AFP + PDF ground truth (1 page, 306 text runs)
@@ -110,9 +111,24 @@ Category codes: `0xA8`=Document, `0xAF`=Page, `0x9B`=Presentation Text, `0xFB`=I
 - `fop-pairs/`: multi-page AFP with IOCA images; paired PDF ground truth for visual comparison.
 - `github-samples/`: edge cases including FOCA raster fonts, unbracketed PTX, IOCA variants.
 
+## FOCA (font objects)
+
+Embedded raster fonts (BFN…EFN) are decoded in `foca.py`: FNI metrics
+(GCGID, character increment, FNM index) join FNM box dimensions and FNG
+1-bit-per-pel pattern data to rebuild each glyph as a PNG (FOCA toned
+pel = 1, inverted to PNG's 0=black). Font-resource files with no
+document pages render a specimen sheet (one page per raster font, glyph
+grid labeled by GCGID) via `_font_specimen_pages()` in `ptoca.py`.
+
 ## What's Not Yet Implemented
 
-- FOCA (font object) — raster and TrueType font metrics; text width currently approximated.
-- Rotated text (STO sets non-zero orientation).
+- FOCA outline fonts (Type 1 PFB / CID, PatTech X'1F'/X'1E') — parsed to
+  metrics-only Font objects; vendor shape data is not rasterized.
+- FNI character-increment widths are not yet fed into document text
+  fitting (render still uses position-anchored width estimation; the
+  primary health-coverage sample embeds no fonts, so it cannot benefit).
 - GOCA partial-arc (GPARC/GCPARC) and character-string orders — partially implemented; arc sweep direction may be off for some angles.
 - Unbracketed PTX fully handled (implicit page captures it, but no environment group).
+
+Done this round: STO text orientation (0/90/180/270° rotation in `ptoca.py`
++ `render.py`); FOCA raster-glyph specimens.

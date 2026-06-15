@@ -18,8 +18,9 @@ previews.
 | IOCA raster images — bilevel, grayscale, JPEG, banded CMYK | ✅ |
 | BCOCA bar codes — QR symbols generated with segno | ✅ |
 | GOCA vector graphics — lines, boxes, arcs, Bézier curves, area fills | ✅ |
-| FOCA font metrics — text widths currently approximated | ❌ |
-| Rotated text (STO control sequence) | ❌ |
+| FOCA raster fonts — embedded bitmap glyphs rendered as a specimen sheet | ✅ |
+| Rotated text — STO orientation (0/90/180/270°) | ✅ |
+| FOCA outline fonts (Type 1 / CID) — parsed to metrics only, not rasterized | ❌ |
 | GOCA partial-arc and character-string orders | partial |
 
 ## Run
@@ -38,6 +39,7 @@ Drop any `.afp` file on the page — or try one of the bundled samples:
 | `testdata/fop-pairs/` | Multi-page AFP with IOCA images (Apache FOP output) |
 | `testdata/github-samples/afplib_ende.afp` | BCOCA QR bar code |
 | `testdata/goca_sample.afp` | Synthetic GOCA sample — filled rect, zigzag, ellipse, Bézier |
+| `testdata/foca_sample.afp` | Embedded raster fonts — Times-Roman & Courier glyph specimen |
 
 ## Test
 
@@ -57,6 +59,7 @@ src/readafp/
   ioca.py       # IOCA image segment decoder → PNG / JPEG / CMYK bands
   bcoca.py      # BCOCA bar code decoder → BarCode + QR PNG via segno
   goca.py       # GOCA drawing-order decoder → SVG fragment
+  foca.py       # FOCA raster-font decoder → glyph bitmaps (PNG)
   app.py        # Flask app (POST /inspect)
   templates/index.html   # split-pane UI
 
