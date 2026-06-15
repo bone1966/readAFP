@@ -2,9 +2,10 @@
 
 import logging
 from collections import Counter
+from pathlib import Path
 from typing import Any, Dict, List
 
-from flask import Flask, render_template, request
+from flask import Flask, abort, render_template, request
 
 from readafp.parser import AfpParseError, StructuredField, iter_fields
 from readafp.ptoca import extract_pages
@@ -34,6 +35,45 @@ CODEPAGES = [
     ("cp1141", "cp1141 — Germany (euro)"),
 ]
 
+_SAMPLES_DIR = Path(__file__).parent / "samples"
+
+# Bundled sample files shown on the landing page.
+SAMPLES = [
+    {
+        "name": "health_coverage",
+        "file": "health_coverage.afp",
+        "label": "Health Coverage letter",
+        "desc": (
+            "A real-world insurance letter produced by a mainframe print "
+            "system. Shows how AFP encodes TrueType text runs, colored rules, "
+            "table borders, and multiple font weights — all positioned to the "
+            "nearest point using PTOCA control sequences."
+        ),
+    },
+    {
+        "name": "goca_demo",
+        "file": "goca_demo.afp",
+        "label": "GOCA vector graphics",
+        "desc": (
+            "Four graphic objects drawn entirely with AFP's binary vector "
+            "drawing orders (GOCA): a filled rectangle, a zigzag polyline, "
+            "an ellipse, and an S-curve Bézier. Good for seeing how AFP "
+            "represents vector art without any raster images."
+        ),
+    },
+    {
+        "name": "ioca_image",
+        "file": "ioca_image.afp",
+        "label": "IOCA raster image",
+        "desc": (
+            "An AFP file containing an IOCA image object — the format AFP "
+            "uses to embed raster graphics. The image data spans multiple "
+            "IPD fields using the 'IPD span' technique, where a zero-length "
+            "FE92 field signals that pixel data follows in the next field."
+        ),
+    },
+]
+
 
 def create_app() -> Flask:
     """Build the Flask application."""
@@ -48,6 +88,7 @@ def create_app() -> Flask:
             error=None,
             codepages=CODEPAGES,
             codepage="cp500",
+            samples=SAMPLES,
         )
 
     @app.post("/inspect")
@@ -63,49 +104,66 @@ def create_app() -> Flask:
                 error="Choose an AFP file first.",
                 codepages=CODEPAGES,
                 codepage=codepage,
+                samples=SAMPLES,
             )
         data = upload.read()
-        try:
-            parsed = list(iter_fields(data))
-        except AfpParseError as exc:
-            logger.warning("Failed to parse %s: %s", upload.filename, exc)
-            return render_template(
-                "index.html",
-                fields=None,
-                error=f"Not a valid AFP file: {exc}",
-                codepages=CODEPAGES,
-                codepage=codepage,
-            )
-        fields = _field_rows(parsed)
-        summary = Counter(row["name"] for row in fields)
-        pages = extract_pages(parsed, codepage)
-        bracketed = sum(1 for row in fields if row["sf_id"] == "0xD3A8AF")
-        if len(pages) > bracketed:  # loose PTX flowed onto implicit pages
-            src_to_page: dict = {}
-            for idx, page in enumerate(pages):
-                for item in page.texts + page.rules:
-                    if item.src is not None:
-                        src_to_page.setdefault(item.src, idx)
-            for row in fields:
-                if row["page"] is None and row["sf_id"] == "0xD3EE9B":
-                    row["page"] = src_to_page.get(row["offset"])
-        page_svgs = pages_to_svgs(pages, MAX_RENDER_PAGES)
-        return render_template(
-            "index.html",
-            fields=fields,
-            error=None,
-            filename=upload.filename,
-            filesize=len(data),
-            summary=summary.most_common(),
-            page_svgs=page_svgs,
-            page_texts=[p.plain_text for p in pages[: len(page_svgs)]],
-            page_total=len(pages),
-            codepages=CODEPAGES,
-            codepage=codepage,
-            mcf_note=_mcf_codepage_note(parsed),
-        )
+        return _render_inspect(data, upload.filename, codepage)
+
+    @app.get("/inspect-sample/<name>")
+    def inspect_sample(name: str) -> str:
+        sample = next((s for s in SAMPLES if s["name"] == name), None)
+        if sample is None:
+            abort(404)
+        path = _SAMPLES_DIR / sample["file"]
+        data = path.read_bytes()
+        return _render_inspect(data, sample["file"], "cp500")
 
     return app
+
+
+def _render_inspect(data: bytes, filename: str, codepage: str) -> str:
+    """Parse AFP bytes and render the full inspect/render template."""
+    try:
+        parsed = list(iter_fields(data))
+    except AfpParseError as exc:
+        logger.warning("Failed to parse %s: %s", filename, exc)
+        return render_template(
+            "index.html",
+            fields=None,
+            error=f"Not a valid AFP file: {exc}",
+            codepages=CODEPAGES,
+            codepage=codepage,
+            samples=SAMPLES,
+        )
+    fields = _field_rows(parsed)
+    summary = Counter(row["name"] for row in fields)
+    pages = extract_pages(parsed, codepage)
+    bracketed = sum(1 for row in fields if row["sf_id"] == "0xD3A8AF")
+    if len(pages) > bracketed:  # loose PTX flowed onto implicit pages
+        src_to_page: dict = {}
+        for idx, page in enumerate(pages):
+            for item in page.texts + page.rules:
+                if item.src is not None:
+                    src_to_page.setdefault(item.src, idx)
+        for row in fields:
+            if row["page"] is None and row["sf_id"] == "0xD3EE9B":
+                row["page"] = src_to_page.get(row["offset"])
+    page_svgs = pages_to_svgs(pages, MAX_RENDER_PAGES)
+    return render_template(
+        "index.html",
+        fields=fields,
+        error=None,
+        filename=filename,
+        filesize=len(data),
+        summary=summary.most_common(),
+        page_svgs=page_svgs,
+        page_texts=[p.plain_text for p in pages[: len(page_svgs)]],
+        page_total=len(pages),
+        codepages=CODEPAGES,
+        codepage=codepage,
+        mcf_note=_mcf_codepage_note(parsed),
+        samples=SAMPLES,
+    )
 
 
 def _mcf_codepage_note(parsed: List[StructuredField]) -> str:

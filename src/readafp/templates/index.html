@@ -109,6 +109,20 @@
     .page-nav button { padding: 4px 12px; background: var(--card); color: var(--text); }
     body.dropping { outline: 3px dashed var(--accent); outline-offset: -3px; }
     .page-nav button:disabled { opacity: 0.35; cursor: default; }
+    .samples-section {
+      padding: 48px 0 0; display: flex; flex-direction: column; align-items: center; gap: 10px;
+    }
+    .samples-heading { color: var(--dim); font-size: 0.9rem; margin: 0; }
+    .sample-cards { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; margin-top: 4px; }
+    .sample-card {
+      background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+      padding: 16px 20px; width: 240px; text-decoration: none; color: var(--text);
+      display: flex; flex-direction: column; gap: 6px;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .sample-card:hover { border-color: var(--accent); background: var(--card); }
+    .sample-card .sc-label { font-weight: 600; font-size: 0.95rem; }
+    .sample-card .sc-desc { color: var(--dim); font-size: 0.8rem; line-height: 1.45; }
     #page-input {
       width: 60px; padding: 3px 6px; text-align: center;
       background: var(--card); color: var(--text);
@@ -158,6 +172,20 @@
   </div>
 
   {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+  {% if not fields and not error %}
+  <div class="samples-section">
+    <p class="samples-heading">No AFP file? Try one of these built-in samples:</p>
+    <div class="sample-cards">
+      {% for s in samples %}
+      <a class="sample-card" href="/inspect-sample/{{ s.name }}" title="{{ s.desc }}">
+        <span class="sc-label">{{ s.label }}</span>
+        <span class="sc-desc">{{ s.desc }}</span>
+      </a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
 
   {% if fields %}
 
