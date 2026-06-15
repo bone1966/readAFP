@@ -1,6 +1,9 @@
 """Tests for GOCA drawing-order decoding and SVG rendering."""
 
+import math
+import re
 import struct
+from pathlib import Path
 
 import pytest
 
@@ -11,7 +14,10 @@ from readafp.goca import (
     iter_orders,
     parse_gdd,
 )
+from readafp.parser import iter_fields
 from readafp.ptoca import VectorGraphic, extract_pages
+
+TESTDATA = Path(__file__).parent.parent / "testdata"
 
 
 # ---------------------------------------------------------------------------
@@ -366,3 +372,52 @@ def test_page_to_svg_contains_nested_svg() -> None:
     # The outer SVG must contain a nested <svg> for the GOCA graphic
     assert svg.count("<svg") >= 2
     assert 'viewBox="0 0 1000 800"' in svg
+
+
+# ---------------------------------------------------------------------------
+# Partial-arc sweep direction (ground-truth sample)
+# ---------------------------------------------------------------------------
+
+def _arc_endpoints(svg: str):
+    """Return (start_angle, end_angle, large, sweep) of a rendered GPARC.
+
+    Angles are degrees of the start/end points about the arc centre, in
+    screen (y-down) coordinates.
+    """
+    m = re.search(
+        r"M ([\d.eE+-]+),([\d.eE+-]+) L ([\d.eE+-]+),([\d.eE+-]+) "
+        r"A ([\d.eE+-]+),([\d.eE+-]+) 0 (\d) (\d) ([\d.eE+-]+),([\d.eE+-]+)",
+        svg,
+    )
+    assert m, f"no GPARC path in {svg!r}"
+    cx, cy, sx, sy, _rx, _ry, large, sweep, ex, ey = (float(v) for v in m.groups())
+    a0 = math.degrees(math.atan2(sy - cy, sx - cx))
+    a1 = math.degrees(math.atan2(ey - cy, ex - cx))
+    return a0, a1, int(large), int(sweep)
+
+
+def test_partial_arc_sweep_directions() -> None:
+    sample = TESTDATA / "goca_arc_sample.afp"
+    if not sample.exists():
+        pytest.skip("run tools/make_goca_arc_sample.py to generate the sample")
+    page = extract_pages(list(iter_fields(sample.read_bytes())))[0]
+    arcs = [_arc_endpoints(g.graphic.svg) for g in page.graphics]
+    assert len(arcs) == 6
+
+    def close(a, b):
+        return abs((a - b + 180) % 360 - 180) < 1.0
+
+    # GOCA sweeps CCW; with the y-flip the SVG sweep flag is 0 (CCW on
+    # screen). Endpoints are at screen angle -(GPS angle).
+    expected = [
+        (0, -90, 0),     # 0/90   E -> up
+        (0, 180, 0),     # 0/180  top half
+        (0, 90, 1),      # 0/270  large 3/4
+        (-90, 180, 0),   # 90/90  up -> W
+        (90, 0, 0),      # 270/90 down -> E
+        (-45, -135, 0),  # 45/90  NE -> NW
+    ]
+    for (a0, a1, large, sweep), (e0, e1, elarge) in zip(arcs, expected):
+        assert close(a0, e0) and close(a1, e1)
+        assert large == elarge
+        assert sweep == 0  # CCW on screen, never inverted for circular arcs
