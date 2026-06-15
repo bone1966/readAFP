@@ -39,6 +39,20 @@ def test_unknown_sf_id_is_reported_in_hex() -> None:
     assert field.name == "Unknown (0xD30000)"
 
 
+def test_code_page_and_image_map_fields_are_named() -> None:
+    # The code-page object family and the Map IO Image field were
+    # previously surfacing as "Unknown".
+    cases = {
+        0xD3ABFB: "MIO", 0xD3A887: "BCP", 0xD3A987: "ECP",
+        0xD3A787: "CPC", 0xD3A687: "CPD", 0xD38C87: "CPI",
+    }
+    for sf_id, acronym in cases.items():
+        field = StructuredField(
+            offset=0, sf_id=sf_id, flags=0, sequence=0, data=b""
+        )
+        assert field.name.startswith(acronym + " "), field.name
+
+
 def test_bad_carriage_control_raises() -> None:
     with pytest.raises(AfpParseError, match="carriage-control"):
         list(iter_fields(b"\x0d\x0anot afp"))
