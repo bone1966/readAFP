@@ -72,6 +72,17 @@ SAMPLES = [
             "SVG color filters and multiply blending to rebuild the photo."
         ),
     },
+    {
+        "name": "foca_font",
+        "file": "foca_font.afp",
+        "label": "FOCA raster font",
+        "desc": (
+            "An AFP font resource that embeds its letters as bitmaps. "
+            "readAFP decodes the FOCA pattern data — the actual 1-bit-per-"
+            "pixel glyph shapes — and lays them out as a specimen sheet, "
+            "one page per embedded typeface (Times-Roman and Courier)."
+        ),
+    },
 ]
 
 

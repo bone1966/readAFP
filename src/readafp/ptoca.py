@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Iterator, List, Optional, Tuple
 
 from readafp.bcoca import barcode_png, parse_barcode
+from readafp.foca import Font, parse_fonts
 from readafp.goca import GocaGraphic, draw_goca
 from readafp.ioca import cmyk_jpeg_bands, image_blob, parse_image_segment
 from readafp.parser import StructuredField
@@ -845,6 +846,12 @@ def extract_pages(
     if implicit is not None and (implicit.texts or implicit.rules):
         _estimate_font_sizes(implicit, fonts)
         pages.extend(_paginate_implicit(implicit))
+    if not pages:
+        # Font resource files (BFN...EFN, no document pages) get a
+        # specimen sheet of their embedded raster glyphs.
+        specimen = _font_specimen_pages(parse_fonts(fields))
+        if specimen:
+            return specimen
     if not pages and loose_images:
         # Standalone object / resource-only files have no pages to
         # place these on; show each image object at its own extent.
@@ -859,6 +866,78 @@ def extract_pages(
                 )
             )
             pages.append(page)
+    return pages
+
+
+def _font_specimen_pages(fonts: List[Font]) -> List[Page]:
+    """Lay out each raster font's glyphs as a labeled specimen sheet.
+
+    Returns one page per raster font that decoded glyph bitmaps; outline
+    fonts (no glyph images) and the trivial space pattern are skipped.
+    """
+    upi = 1440
+    page_w = 12240
+    margin = 600
+    title_size = 440  # ~22pt
+    label_size = 170  # ~8.5pt
+    glyph_h = 700
+    cell_w = 1700
+    cell_h = 1300
+    grid_top = 980
+
+    pages: List[Page] = []
+    for font in fonts:
+        glyphs = [g for g in font.glyphs if g.width >= 3 and g.height >= 3]
+        if not glyphs:
+            continue
+        cols = max(1, (page_w - 2 * margin) // cell_w)
+        rows = (len(glyphs) + cols - 1) // cols
+        page = Page(
+            width=page_w,
+            height=grid_top + rows * cell_h + margin,
+            units_per_inch=upi,
+        )
+        label = font.typeface or font.name or "embedded font"
+        page.texts.append(
+            TextRun(
+                x=margin,
+                y=margin,
+                text=f"Embedded raster font: {label} — {len(glyphs)} glyphs",
+                font_size=title_size,
+                font_weight="bold",
+            )
+        )
+        for i, g in enumerate(glyphs):
+            col, row = i % cols, i // cols
+            cell_x = margin + col * cell_w
+            cell_y = grid_top + row * cell_h
+            gw = round(glyph_h * g.width / g.height)
+            gh = glyph_h
+            max_w = cell_w - 200
+            if gw > max_w:  # very wide glyph: fit to the cell width
+                gh = round(gh * max_w / gw)
+                gw = max_w
+            page.images.append(
+                ImageRef(
+                    x=cell_x + (cell_w - gw) // 2,
+                    y=cell_y + (glyph_h - gh),
+                    width=gw,
+                    height=gh,
+                    mime="image/png",
+                    data=g.png,
+                )
+            )
+            page.texts.append(
+                TextRun(
+                    x=cell_x + 40,
+                    y=cell_y + glyph_h + label_size + 60,
+                    text=g.gcgid or "?",
+                    color="#666666",
+                    font_size=label_size,
+                    font_family="Consolas",
+                )
+            )
+        pages.append(page)
     return pages
 
 
