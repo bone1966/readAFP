@@ -152,6 +152,11 @@
     }
     @keyframes runflash { 50% { opacity: 0.2; } }
     .render-note { color: #aab0c6; font-size: 0.8rem; }
+    .render-warn {
+      color: #ffcc66; font-size: 0.8rem; font-weight: 600;
+      background: rgba(255, 204, 102, 0.12); border: 1px solid rgba(255, 204, 102, 0.4);
+      border-radius: 6px; padding: 2px 8px; cursor: help;
+    }
     .agree-label {
       display: flex; align-items: center; gap: 5px;
       color: var(--dim); font-size: 0.82rem; white-space: nowrap; cursor: pointer;
@@ -311,7 +316,7 @@
         </select>
         <span class="render-note" id="xy" title="Pointer position on the page, in inches"></span>
         {% if page_total > page_svgs|length %}
-        <span class="render-note">(first {{ page_svgs|length }} of {{ page_total }} rendered)</span>
+        <span class="render-warn" title="readAFP renders only the first {{ page_svgs|length }} pages to keep the in-browser SVG payload responsive — rendering all {{ "{:,}".format(page_total) }} pages at once would bloat the page and could freeze your browser. The inspector on the left still lists every structured field in the whole file.">⚠ Showing first {{ page_svgs|length }} of {{ "{:,}".format(page_total) }} pages — why?</span>
         {% endif %}
         <span class="render-note">· SVG render: text, rules, IOCA images, BCOCA bar codes &amp; GOCA vector graphics</span>
       </div>
