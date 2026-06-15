@@ -217,14 +217,17 @@ def _render_inspect(data: bytes, filename: str, codepage: str) -> str:
 # than a document, in priority order (most specific first). SF ID is
 # 0xD3 + type 0xA8 (Begin) + the resource category code.
 _RESOURCE_KINDS = [
-    (0xD3A889, "font character set"),
-    (0xD3A88A, "coded font"),
-    (0xD3A887, "code page"),
-    (0xD3A8DF, "page overlay"),
-    (0xD3A85F, "page segment"),
-    (0xD3A892, "object container"),
-    (0xD3A8C6, "resource group"),
-    (0xD3A8CE, "object resource"),
+    (0xD3A889, "font character set"),     # BFN
+    (0xD3A88A, "coded font"),             # BCF
+    (0xD3A887, "code page"),              # BCP
+    (0xD3A8DF, "page overlay"),           # BMO
+    (0xD3A85F, "page segment"),           # BPS (may itself wrap an object)
+    (0xD3A8FB, "IOCA image resource"),    # BIM
+    (0xD3A8BB, "GOCA graphics resource"),  # BGR
+    (0xD3A8EB, "BCOCA bar code resource"),  # BBC
+    (0xD3A892, "object container"),       # BOC
+    (0xD3A8C6, "resource group"),         # BRG (generic wrapper — last)
+    (0xD3A8CE, "object resource"),        # BRS (generic wrapper — last)
 ]
 
 

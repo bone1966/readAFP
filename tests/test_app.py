@@ -17,6 +17,7 @@ HEALTH_SAMPLE = TESTDATA / "sample1_health" / "01_Health_Coverage.afp"
 OUTLINE_FONT = TESTDATA / "github-samples" / "afplib" / "C0X00006.afp"
 CS_OVERLAY = TESTDATA / "github-samples" / "afplib" / "cs.afp"
 SAMPLE1 = TESTDATA / "Sample Files" / "Sample 1.afp"
+IMAGE_RESOURCE = TESTDATA / "github-samples" / "fop" / "expected_resource.afp"
 
 
 def test_field_rows_tag_page_membership() -> None:
@@ -39,6 +40,14 @@ def test_resource_kind_flags_pageless_font() -> None:
         pytest.skip("outline font fixture not present")
     # A font character set has no BPG, so it is flagged as a resource.
     assert _resource_kind(parse_file(str(OUTLINE_FONT))) == "font character set"
+
+
+def test_resource_kind_names_specific_object() -> None:
+    if not IMAGE_RESOURCE.exists():
+        pytest.skip("image resource fixture not present")
+    # A resource group wrapping an IOCA image reports the specific object
+    # kind, not the generic "resource group".
+    assert _resource_kind(parse_file(str(IMAGE_RESOURCE))) == "IOCA image resource"
 
 
 def test_resource_kind_silent_for_document() -> None:
