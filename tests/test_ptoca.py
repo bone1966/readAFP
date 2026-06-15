@@ -477,6 +477,9 @@ def test_embedded_raster_font_text_renders_as_glyphs() -> None:
     glyph_imgs = [im for im in page.images if im.crisp]
     assert len(glyph_imgs) == 35  # the embedded-code-page characters
     assert all(im.data.startswith(b"\x89PNG") for im in glyph_imgs)
-    # Placed left-to-right with advancing x, scaled to a sane glyph height.
+    # Scaled to a sane glyph box: a short glyph (em dash, minus) must not
+    # blow up to a full-height black bar. One font scale, not per-glyph
+    # height, keeps both dimensions within a character cell.
     assert all(0 < im.height < page.units_per_inch for im in glyph_imgs)
+    assert all(0 < im.width < page.units_per_inch for im in glyph_imgs)
     assert page.texts  # the externally-resourced bulk still renders

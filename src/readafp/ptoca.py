@@ -310,6 +310,7 @@ class _EmbeddedFont:
 
     cp_map: Dict[int, str]
     glyphs: Dict[str, object]
+    ref_height: int = 1  # tallest glyph box (pels): the uniform scale base
 
 
 class _TextState:
@@ -464,6 +465,10 @@ class _TextState:
         x, y = self.i, self.b
         space = max(1, int(size * 0.5))
         gap = max(1, round(size * 0.1))
+        # One scale for the whole font (its tallest glyph maps to the run
+        # size), so short glyphs like dashes stay short instead of being
+        # blown up to full height.
+        scale = size / (emb.ref_height or 1)
         for byte in data:
             if len(page.images) >= MAX_RUNS_PER_PAGE:
                 page.truncated = True
@@ -474,9 +479,10 @@ class _TextState:
             if glyph is None or not png or not glyph.height:
                 x += space
                 continue
-            scale = size / glyph.height
             w = max(1, round(glyph.width * scale))
             h = max(1, round(glyph.height * scale))
+            # Box bottom on the baseline (per-glyph baseline offset isn't
+            # decoded yet, so this is approximate for sub-baseline glyphs).
             page.images.append(
                 ImageRef(
                     x=x, y=y - h, width=w, height=h,
@@ -937,7 +943,10 @@ def extract_pages(
                 cp_map = code_pages.get(cp_name or "")
                 glyphs = char_set_glyphs.get(cs_name or "")
                 if cp_map and glyphs:
-                    embedded_text_fonts[lid] = _EmbeddedFont(cp_map, glyphs)
+                    ref = max((g.height for g in glyphs.values()), default=1)
+                    embedded_text_fonts[lid] = _EmbeddedFont(
+                        cp_map, glyphs, ref
+                    )
         elif f.sf_id == 0xD3A6AF and len(f.data) >= 12:  # PGD
             parsed = _parse_pgd(f.data)
             if current is not None:
