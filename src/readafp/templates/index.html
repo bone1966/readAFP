@@ -508,7 +508,7 @@
       </div>
       <hr>
       <p>Vibe-coded by
-        <a href="mailto:keithlutzdea @ gmail.com"><strong>Keith Lutz</strong></a>, 2026</p>
+        <a id="author-email" href="#"><strong>Keith Lutz</strong></a>, 2026</p>
       <p>Built with <strong>Claude (Anthropic)</strong> via <strong>Fable5</strong></p>
       <hr>
       <p>
@@ -551,6 +551,12 @@
     document.getElementById("agree-terms").addEventListener("click", openAbout);
     aboutClose.addEventListener("click", () => aboutDlg.close());
     aboutDlg.addEventListener("click", (e) => { if (e.target === aboutDlg) aboutDlg.close(); });
+
+    // Assemble the author's mailto in JS so the plain address never
+    // appears in the page source for email harvesters to scrape.
+    const emailLink = document.getElementById("author-email");
+    const emailParts = ["keithlutzdea", "gmail.com"];
+    emailLink.href = "mailto:" + emailParts[0] + "@" + emailParts[1];
   </script>
 </body>
 </html>
