@@ -297,6 +297,24 @@ def _decode_outlines(
     return font.units_per_em, outlines
 
 
+def parse_code_page(cpi: bytes) -> Dict[int, str]:
+    """Map each code point to its GCGID from a Code Page Index (CPI).
+
+    Single-byte CPI records are GCGID (8 EBCDIC bytes) + a section byte +
+    the 1-byte code point. Returns {code_point: GCGID}; records whose
+    GCGID does not decode are skipped, which also stops parsing cleanly at
+    any trailing/padding bytes.
+    """
+    out: Dict[int, str] = {}
+    rg = 10
+    for i in range(0, len(cpi) - rg + 1, rg):
+        gcgid = _decode_name(cpi[i : i + 8])
+        if not gcgid or not gcgid[0].isalpha():
+            continue
+        out[cpi[i + 9]] = gcgid
+    return out
+
+
 def parse_fonts(fields: List[StructuredField]) -> List[Font]:
     """Extract every BFN...EFN font character set from a parsed file.
 

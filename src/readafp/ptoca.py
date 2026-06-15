@@ -20,11 +20,15 @@ from dataclasses import dataclass, field, replace
 from typing import Dict, Iterator, List, Optional, Tuple
 
 from readafp.bcoca import barcode_png, parse_barcode
-from readafp.foca import Font, parse_fonts
+from readafp.foca import Font, parse_code_page, parse_fonts
 from readafp.goca import GocaGraphic, draw_goca
 from readafp.ioca import cmyk_jpeg_bands, image_blob, parse_image_segment
 from readafp.parser import StructuredField
-from readafp.triplets import iter_triplets, parse_mcf_codepages
+from readafp.triplets import (
+    iter_triplets,
+    mcf_font_resources,
+    parse_mcf_codepages,
+)
 from readafp.type1 import glyph_to_path_d
 
 logger = logging.getLogger(__name__)
@@ -295,6 +299,19 @@ def _sec_color(params: bytes) -> Optional[str]:
     return None
 
 
+@dataclass
+class _EmbeddedFont:
+    """A coded font whose code page and glyph bitmaps are both embedded.
+
+    Lets document text be drawn in the file's own raster font: each text
+    byte resolves through ``cp_map`` (code point → GCGID) to a glyph in
+    ``glyphs`` (GCGID → foca.Glyph bitmap).
+    """
+
+    cp_map: Dict[int, str]
+    glyphs: Dict[str, object]
+
+
 class _TextState:
     """Mutable PTOCA interpreter state, carried across PTX fields of a page."""
 
@@ -303,8 +320,14 @@ class _TextState:
         fonts: Optional[Dict[int, FontInfo]] = None,
         codepage: str = "cp500",
         font_codepages: Optional[Dict[int, str]] = None,
+        embedded_text_fonts: Optional[Dict[int, _EmbeddedFont]] = None,
     ) -> None:
         self.codepage = codepage
+        # Coded fonts whose code page and glyphs are embedded in the file,
+        # so their text can be drawn in the document's own raster font.
+        self.embedded_text_fonts = (
+            embedded_text_fonts if embedded_text_fonts is not None else {}
+        )
         # Per-coded-font code pages from MCF labels; the plain codepage
         # is the fallback for fonts the file leaves unlabeled.
         self.font_codepages = font_codepages if font_codepages is not None else {}
@@ -357,13 +380,17 @@ class _TextState:
             self.i = 0
             self.b = 0
         elif t == 0xDA:  # TRN
+            info = self.fonts.get(self.font_id, FontInfo())
+            size = info.size or max(page.units_per_inch // 6, 8)
+            emb = self.embedded_text_fonts.get(self.font_id)
+            if emb is not None and self.orientation == 0:
+                self._emit_embedded_glyphs(page, p, emb, size)
+                return
+            # Default size is ~12pt in the page's own resolution (1440/inch
+            # gives 240; FOP emits 240/inch where 12pt is just 40).
             text = _decode_trn(
                 p, self.font_codepages.get(self.font_id, self.codepage)
             )
-            info = self.fonts.get(self.font_id, FontInfo())
-            # Default to ~12pt in the page's own resolution (1440/inch
-            # gives 240; FOP emits 240/inch where 12pt is just 40).
-            size = info.size or max(page.units_per_inch // 6, 8)
             if (
                 self.wrap_width is not None
                 and self.i > 0
@@ -421,6 +448,43 @@ class _TextState:
                 src=self.field_offset,
             )
         )
+
+    def _emit_embedded_glyphs(
+        self, page: Page, data: bytes, emb: "_EmbeddedFont", size: int
+    ) -> None:
+        """Draw a TRN run with the file's own embedded raster glyphs.
+
+        Each byte resolves through the code page to a GCGID and its glyph
+        bitmap; the bitmap is scaled so its box height matches the run's
+        font size and placed at the advancing inline position. The advance
+        uses the scaled box width — the FNI metric increment lives in a
+        different design unit (pattern pels vs metric units) that is not
+        yet reconciled, so spacing is approximate.
+        """
+        x, y = self.i, self.b
+        space = max(1, int(size * 0.5))
+        gap = max(1, round(size * 0.1))
+        for byte in data:
+            if len(page.images) >= MAX_RUNS_PER_PAGE:
+                page.truncated = True
+                break
+            gcgid = emb.cp_map.get(byte)
+            glyph = emb.glyphs.get(gcgid) if gcgid else None
+            png = getattr(glyph, "png", None)
+            if glyph is None or not png or not glyph.height:
+                x += space
+                continue
+            scale = size / glyph.height
+            w = max(1, round(glyph.width * scale))
+            h = max(1, round(glyph.height * scale))
+            page.images.append(
+                ImageRef(
+                    x=x, y=y - h, width=w, height=h,
+                    mime="image/png", data=png, crisp=True,
+                )
+            )
+            x += w + gap
+        self.i = x
 
 
 def _estimate_font_sizes(page: Page, known_fonts: Dict[int, FontInfo]) -> None:
@@ -653,6 +717,24 @@ def _parse_pgd(data: bytes) -> Tuple[int, int, int]:
     return width, height, units_per_inch
 
 
+def _scan_code_pages(fields: List[StructuredField]) -> Dict[str, Dict[int, str]]:
+    """Map each embedded code page (BCP...ECP) to its code-point → GCGID."""
+    out: Dict[str, Dict[int, str]] = {}
+    name: Optional[str] = None
+    cpi = b""
+    for f in fields:
+        if f.sf_id == 0xD3A887:  # BCP
+            name = (f.token_name or "").strip()
+            cpi = b""
+        elif f.sf_id == 0xD38C87:  # CPI
+            cpi += f.data
+        elif f.sf_id == 0xD3A987:  # ECP
+            if name and cpi:
+                out[name] = parse_code_page(cpi)
+            name, cpi = None, b""
+    return out
+
+
 def extract_pages(
     fields: List[StructuredField], codepage: str = "cp500"
 ) -> List[Page]:
@@ -676,6 +758,18 @@ def extract_pages(
     pgd_default: Optional[Tuple[int, int, int]] = None
     fonts: Dict[int, FontInfo] = {}
     font_codepages: Dict[int, str] = {}
+    # Embedded font resources, for drawing text in the file's own raster
+    # glyphs: code pages (name → code-point→GCGID) and character sets
+    # (name → GCGID→glyph). Pre-scanned so they are ready when an MCF maps
+    # a local id to them. embedded_text_fonts is filled by the MCF handler
+    # and shared by reference with each _TextState.
+    code_pages = _scan_code_pages(fields)
+    char_set_glyphs = {
+        font.name: {g.gcgid: g for g in font.glyphs}
+        for font in parse_fonts(fields)
+        if font.glyphs and font.name
+    }
+    embedded_text_fonts: Dict[int, _EmbeddedFont] = {}
     resources: Dict[str, bytes] = {}
     container: Optional[str] = None
     image_resources: Dict[str, _ImageObject] = {}
@@ -809,7 +903,7 @@ def extract_pages(
             current = Page()
             if pgd_default:
                 current.width, current.height, current.units_per_inch = pgd_default
-            state = _TextState(fonts, codepage, font_codepages)
+            state = _TextState(fonts, codepage, font_codepages, embedded_text_fonts)
             in_overlay = True
             overlay_name = (f.token_name or "").strip()
         elif f.sf_id == 0xD3A9DF:  # EMO: store the captured overlay by name
@@ -822,7 +916,7 @@ def extract_pages(
             current = Page()
             if pgd_default:
                 current.width, current.height, current.units_per_inch = pgd_default
-            state = _TextState(fonts, codepage, font_codepages)
+            state = _TextState(fonts, codepage, font_codepages, embedded_text_fonts)
         elif f.sf_id == 0xD3A9AF:  # EPG
             if current is not None:
                 _estimate_font_sizes(current, fonts)
@@ -831,11 +925,19 @@ def extract_pages(
         elif f.sf_id == 0xD3ABC3:  # MDR maps fonts to SCFL local ids
             fonts.update(parse_mdr_fonts(f.data))
         elif f.sf_id in (0xD3AB8A, 0xD3B18A):  # MCF labels coded fonts
-            for local_id, cp in parse_mcf_codepages(
-                f.data, format1=f.sf_id == 0xD3B18A
-            ).items():
+            fmt1 = f.sf_id == 0xD3B18A
+            for local_id, cp in parse_mcf_codepages(f.data, format1=fmt1).items():
                 if cp.codec:
                     font_codepages[local_id] = cp.codec
+            # Pair each local id with its embedded code page + character set
+            # so the run can be drawn in the file's own raster glyphs.
+            for lid, (cp_name, cs_name) in mcf_font_resources(
+                f.data, format1=fmt1
+            ).items():
+                cp_map = code_pages.get(cp_name or "")
+                glyphs = char_set_glyphs.get(cs_name or "")
+                if cp_map and glyphs:
+                    embedded_text_fonts[lid] = _EmbeddedFont(cp_map, glyphs)
         elif f.sf_id == 0xD3A6AF and len(f.data) >= 12:  # PGD
             parsed = _parse_pgd(f.data)
             if current is not None:
@@ -852,7 +954,7 @@ def extract_pages(
                             implicit.height,
                             implicit.units_per_inch,
                         ) = pgd_default
-                    implicit_state = _TextState(fonts, codepage, font_codepages)
+                    implicit_state = _TextState(fonts, codepage, font_codepages, embedded_text_fonts)
                     implicit_state.wrap_width = implicit.width - 480
                     implicit_state.i = 240
                     implicit_state.b = 320

@@ -463,3 +463,20 @@ def test_sto_resets_position() -> None:
     pages = extract_pages(list(iter_fields(doc)))
     run = pages[0].texts[0]
     assert (run.x, run.y) == (100, 200)  # pre-STO moves discarded
+
+
+def test_embedded_raster_font_text_renders_as_glyphs() -> None:
+    # Sample 1.afp embeds both a code page (T1AAAAAA) and the character set
+    # it pairs with, so that text (local ids 3 and 5) can be drawn in the
+    # file's own raster glyphs instead of a substitute font. The bulk text
+    # uses an external code page and stays as substitute text runs.
+    sample = TESTDATA / "Sample Files" / "Sample 1.afp"
+    if not sample.exists():
+        pytest.skip("Sample 1 not present")
+    page = extract_pages(parse_file(str(sample)))[0]
+    glyph_imgs = [im for im in page.images if im.crisp]
+    assert len(glyph_imgs) == 35  # the embedded-code-page characters
+    assert all(im.data.startswith(b"\x89PNG") for im in glyph_imgs)
+    # Placed left-to-right with advancing x, scaled to a sane glyph height.
+    assert all(0 < im.height < page.units_per_inch for im in glyph_imgs)
+    assert page.texts  # the externally-resourced bulk still renders

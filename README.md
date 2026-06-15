@@ -25,8 +25,9 @@ previews.
 | AFP resource files — page-less font/overlay/image resources flagged; standalone overlays & images rendered | ✅ |
 | Missing-resource detection — names external code pages / character sets a document references but doesn't embed | ✅ |
 | GOCA partial-arc and character-string orders | partial |
+| Document text in the file's own embedded raster font (code page also embedded) | ✅ |
 | True CFF / CID-keyed (Type 0) outline fonts — Type 2 charstrings | ❌ |
-| Embedded fonts driving document text (Phase B) — needs IBM code-page → GCGID tables | ❌ |
+| Document text via *external* (non-embedded) code pages / outline fonts | ❌ |
 
 ## Run
 

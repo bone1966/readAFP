@@ -153,13 +153,21 @@ local-id→name indirection is not yet handled.
 ## What's Not Yet Implemented
 
 - FOCA outline fonts: Adobe Type 1 (PFB) glyph shapes ARE now rasterized
-  to SVG paths for the specimen (`type1.py`). Still open: (a) true CFF /
+  to SVG paths for the specimen (`type1.py`). Still open: true CFF /
   CID-keyed (Type 0) fonts use Type 2 charstrings — a different
-  interpreter, so those fall back to the metadata sheet; (b) the decoded
-  outlines are not yet used for *document* text — PTOCA runs still
-  substitute Arial. Feeding embedded outlines into document text (Phase B,
-  the real "render what a printer marks" goal) is the next project: it
-  needs the code-page → GCGID mapping and per-run scaling/positioning.
+  interpreter, so those fall back to the metadata sheet.
+- Document text in the file's own fonts (Phase B) — done for **raster**
+  fonts whose code page is also embedded: a TRN run resolves each byte
+  through the embedded code page (CPI → GCGID) to a glyph in the embedded
+  character set and draws the real bitmap (`_emit_embedded_glyphs` in
+  `ptoca.py`, fed by `_scan_code_pages` + `triplets.mcf_font_resources`).
+  Still open: (a) text whose code page is **external** (e.g. cp1140, the
+  bulk of `Sample 1.afp`) — we have the codec but not the byte→GCGID map,
+  so it stays substitute Arial and is flagged by the missing-resources
+  panel; (b) glyph advance uses the scaled bitmap width — the FNI metric
+  increment is in a different design unit (pattern pels vs metric units)
+  not yet reconciled; (c) outline (Type 1) glyphs are not yet wired into
+  document text, only the specimen; (d) only 0° orientation.
 - FNI character-increment widths are not yet fed into document text
   fitting (render still uses position-anchored width estimation; the
   primary health-coverage sample embeds no fonts, so it cannot benefit).

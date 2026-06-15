@@ -584,6 +584,42 @@ def parse_mcf_codepages(
     return out
 
 
+def mcf_font_resources(
+    data: bytes, format1: bool
+) -> Dict[int, Tuple[Optional[str], Optional[str]]]:
+    """Map each coded-font local id to its (code page, character set) names.
+
+    Format 1 carries both names in fixed slots per group; format 2 uses
+    FQN triplets (X'85' code page, X'86' character set) beside the X'24'
+    Resource Local ID. The caller pairs these with embedded code pages and
+    character sets to render text in the file's own fonts.
+    """
+    out: Dict[int, Tuple[Optional[str], Optional[str]]] = {}
+    if format1:
+        for local_id, _cf, cp, fcs, _raw in _mcf1_groups(data):
+            out[local_id] = (cp, fcs)
+        return out
+    pos = 0
+    while pos + 2 <= len(data):
+        group_len = _u16(data, pos)
+        if group_len < 2 or pos + group_len > len(data):
+            break
+        local_id: Optional[int] = None
+        cp_name: Optional[str] = None
+        cs_name: Optional[str] = None
+        for tid, tdata in iter_triplets(data[pos + 2 : pos + group_len]):
+            if tid == 0x24 and len(tdata) >= 2 and tdata[0] in (0x00, 0x05):
+                local_id = tdata[1]
+            elif tid == 0x02 and len(tdata) >= 3 and tdata[0] == 0x85:
+                cp_name = _ebcdic(tdata[2:])
+            elif tid == 0x02 and len(tdata) >= 3 and tdata[0] == 0x86:
+                cs_name = _ebcdic(tdata[2:])
+        if local_id is not None:
+            out[local_id] = (cp_name, cs_name)
+        pos += group_len
+    return out
+
+
 def mcf_resource_names(data: bytes, format1: bool) -> Dict[str, set]:
     """Names of the font resources an MCF references, keyed by kind.
 
