@@ -64,12 +64,12 @@ SAMPLES = [
     {
         "name": "ioca_image",
         "file": "ioca_image.afp",
-        "label": "IOCA raster image",
+        "label": "IOCA color photo",
         "desc": (
-            "An AFP file containing an IOCA image object — the format AFP "
-            "uses to embed raster graphics. The image data spans multiple "
-            "IPD fields using the 'IPD span' technique, where a zero-length "
-            "FE92 field signals that pixel data follows in the next field."
+            "A full-color photograph stored as an IOCA image object. AFP "
+            "splits color into four grayscale ink planes (cyan, magenta, "
+            "yellow, black); readAFP recomposes them in the browser with "
+            "SVG color filters and multiply blending to rebuild the photo."
         ),
     },
 ]
