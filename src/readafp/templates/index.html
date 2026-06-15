@@ -59,6 +59,21 @@
     .resource-banner code {
       font-family: Consolas, monospace; color: #ffe0e0; font-size: 0.82rem;
     }
+    .missing-banner {
+      display: flex; gap: 12px; align-items: baseline;
+      background: rgba(255, 167, 38, 0.10); border: 1px solid #ffa726;
+      border-radius: 10px; padding: 12px 16px; margin-bottom: 20px;
+    }
+    .missing-banner .mb-tag {
+      flex: none; background: #ffa726; color: #3a2600; font-weight: 700;
+      font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase;
+      padding: 3px 8px; border-radius: 6px;
+    }
+    .missing-banner .mb-text { color: var(--text); font-size: 0.86rem; line-height: 1.5; }
+    .missing-banner code {
+      font-family: Consolas, monospace; color: #ffb74d; font-size: 0.82rem;
+    }
+    .missing-banner .mb-codec { color: var(--dim); font-size: 0.78rem; }
     .meta { color: var(--dim); margin: 0; font-size: 0.85rem; }
     .topbar-right { margin-left: auto; display: flex; gap: 10px; align-items: center; }
     .view-toggle { display: flex; gap: 0; border: 1px solid var(--border);
@@ -263,6 +278,19 @@
       {% if page_svgs %}readAFP shows a synthesized view of its contents on the
       right.{% else %}readAFP lists its structured fields below; it carries no
       drawable content to render.{% endif %}</span>
+  </div>
+  {% endif %}
+
+  {% if missing_resources %}
+  <div class="missing-banner">
+    <span class="mb-tag">Missing resources</span>
+    <span class="mb-text">This document references {{ missing_resources|length }}
+      external font resource{{ "s" if missing_resources|length != 1 }} that
+      {{ "are" if missing_resources|length != 1 else "is" }} not embedded in the
+      file. Like other AFP viewers, readAFP can't load them, so text using them
+      is drawn with a substitute font:
+      <span class="mb-list">
+        {% for r in missing_resources %}<code title="{{ r.kind }}">{{ r.name }}</code>{% if r.codec %} <span class="mb-codec">(text decoded via {{ r.codec }})</span>{% endif %}{{ ", " if not loop.last }}{% endfor %}</span></span>
   </div>
   {% endif %}
 

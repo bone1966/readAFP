@@ -4,12 +4,19 @@ from pathlib import Path
 
 import pytest
 
-from readafp.app import create_app, _field_rows, _resource_kind
+from readafp.app import (
+    create_app,
+    _field_rows,
+    _missing_resources,
+    _resource_kind,
+)
 from readafp.parser import parse_file
 
 TESTDATA = Path(__file__).parent.parent / "testdata"
 HEALTH_SAMPLE = TESTDATA / "sample1_health" / "01_Health_Coverage.afp"
 OUTLINE_FONT = TESTDATA / "github-samples" / "afplib" / "C0X00006.afp"
+CS_OVERLAY = TESTDATA / "github-samples" / "afplib" / "cs.afp"
+SAMPLE1 = TESTDATA / "Sample Files" / "Sample 1.afp"
 
 
 def test_field_rows_tag_page_membership() -> None:
@@ -54,6 +61,34 @@ def test_inspect_resource_shows_banner() -> None:
     html = response.get_data(as_text=True)
     assert "resource-banner" in html
     assert "font character set" in html
+
+
+def test_missing_resources_format2_matches_viewer() -> None:
+    if not CS_OVERLAY.exists():
+        pytest.skip("cs.afp sample not present")
+    missing = _missing_resources(parse_file(str(CS_OVERLAY)))
+    names = {r["name"] for r in missing}
+    # The same external resources a real AFP viewer reports as missing.
+    assert "T1EX0000" in names  # code page
+    assert {"C0EX0460", "C0EX04U0"} <= names  # character sets
+    assert all(r["codec"] is None for r in missing if r["kind"] == "code page")
+
+
+def test_missing_resources_notes_builtin_codec() -> None:
+    if not SAMPLE1.exists():
+        pytest.skip("Sample 1 not present")
+    missing = _missing_resources(parse_file(str(SAMPLE1)))
+    # The bulk text's code page is external, but resolves to a built-in
+    # codec; the embedded character sets are not reported missing.
+    cps = [r for r in missing if r["kind"] == "code page"]
+    assert any(r["name"] == "T1001140" and r["codec"] == "cp1140" for r in cps)
+    assert not any(r["kind"] == "character set" for r in missing)
+
+
+def test_no_missing_resources_for_clean_document() -> None:
+    if not HEALTH_SAMPLE.exists():
+        pytest.skip("test corpus not present")
+    assert _missing_resources(parse_file(str(HEALTH_SAMPLE))) == []
 
 
 def test_inspect_endpoint_links_rows_to_pages() -> None:

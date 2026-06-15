@@ -15,7 +15,9 @@ from readafp.render import pages_to_svgs
 from readafp.triplets import (
     MCF_FORMAT_1,
     MCF_FORMAT_2,
+    codec_for_codepage_name,
     describe_field,
+    mcf_resource_names,
     parse_mcf_codepages,
 )
 
@@ -206,6 +208,7 @@ def _render_inspect(data: bytes, filename: str, codepage: str) -> str:
         codepage=codepage,
         mcf_note=_mcf_codepage_note(parsed),
         resource_kind=_resource_kind(parsed),
+        missing_resources=_missing_resources(parsed),
         samples=SAMPLES,
     )
 
@@ -239,6 +242,48 @@ def _resource_kind(parsed: List[StructuredField]) -> str:
     if 0xD3A8AF in ids:  # BPG present -> it has real document pages
         return ""
     return next((label for sid, label in _RESOURCE_KINDS if sid in ids), "")
+
+
+# Begin-fields that embed each font-resource kind, keyed to match the
+# resource kinds an MCF references.
+_EMBED_FIELDS = {
+    "code page": 0xD3A887,  # BCP
+    "character set": 0xD3A889,  # BFN
+    "coded font": 0xD3A88A,  # BCF
+}
+
+
+def _missing_resources(parsed: List[StructuredField]) -> List[Dict[str, Any]]:
+    """Font resources a document references via MCF but does not embed.
+
+    Lists each missing coded font / code page / character set, the way an
+    AFP viewer reports "Missing Resource" — so the user understands why
+    text using those resources falls back to substitute fonts. Code pages
+    that resolve to a built-in codec still note it (the text decodes even
+    though the resource itself is absent).
+    """
+    refs: Dict[str, set] = {
+        "coded font": set(), "code page": set(), "character set": set()
+    }
+    for field in parsed:
+        if field.sf_id in (MCF_FORMAT_1, MCF_FORMAT_2):
+            for kind, names in mcf_resource_names(
+                field.data, field.sf_id == MCF_FORMAT_1
+            ).items():
+                refs[kind] |= names
+    embedded = {
+        kind: {f.token_name for f in parsed
+               if f.sf_id == sid and f.token_name}
+        for kind, sid in _EMBED_FIELDS.items()
+    }
+    missing: List[Dict[str, Any]] = []
+    for kind in ("coded font", "code page", "character set"):
+        for name in sorted(refs[kind] - embedded[kind]):
+            codec = (
+                codec_for_codepage_name(name) if kind == "code page" else None
+            )
+            missing.append({"kind": kind, "name": name, "codec": codec})
+    return missing
 
 
 def _mcf_codepage_note(parsed: List[StructuredField]) -> str:

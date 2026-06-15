@@ -582,3 +582,41 @@ def parse_mcf_codepages(
             out[local_id] = McfCodePage(label, codec)
         pos += group_len
     return out
+
+
+def mcf_resource_names(data: bytes, format1: bool) -> Dict[str, set]:
+    """Names of the font resources an MCF references, keyed by kind.
+
+    Returns ``{"coded font": {...}, "code page": {...},
+    "character set": {...}}``. Format 1 carries the three names in fixed
+    slots per group; format 2 uses FQN triplets (X'85' code page, X'86'
+    font character set). The caller diffs these against what the file
+    embeds to surface resources it depends on but does not contain.
+    """
+    refs: Dict[str, set] = {
+        "coded font": set(), "code page": set(), "character set": set()
+    }
+    if format1:
+        for _lid, cf, cp, fcs, _raw in _mcf1_groups(data):
+            if cf:
+                refs["coded font"].add(cf)
+            if cp:
+                refs["code page"].add(cp)
+            if fcs:
+                refs["character set"].add(fcs)
+        return refs
+    pos = 0
+    while pos + 2 <= len(data):
+        group_len = _u16(data, pos)
+        if group_len < 2 or pos + group_len > len(data):
+            break
+        for tid, tdata in iter_triplets(data[pos + 2 : pos + group_len]):
+            if tid == 0x02 and len(tdata) >= 3:
+                if tdata[0] == 0x85:
+                    refs["code page"].add(_ebcdic(tdata[2:]))
+                elif tdata[0] == 0x86:
+                    refs["character set"].add(_ebcdic(tdata[2:]))
+                elif tdata[0] == 0x8E:
+                    refs["coded font"].add(_ebcdic(tdata[2:]))
+        pos += group_len
+    return refs
