@@ -96,13 +96,13 @@ def build_afp() -> bytes:
     body = _ptx(
         _color(BLACK),
         *_move(900, 1760), _text("Dear Policyholder,"),
-        *_move(900, 2360),
+        *_move(900, 2060),
         _text("The letterhead, rule, and footer on this page are not part"),
-        *_move(900, 2960),
+        *_move(900, 2360),
         _text("of the page itself - they live in a reusable AFP overlay"),
-        *_move(900, 3560),
+        *_move(900, 2660),
         _text("(BMO/EMO), pulled in with one Include Page Overlay field."),
-        *_move(900, 4160),
+        *_move(900, 2960),
         _text("readAFP composites the overlay beneath this body text."),
     )
     return (
