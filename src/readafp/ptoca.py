@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Iterator, List, Optional, Tuple
 
 from readafp.bcoca import barcode_png, parse_barcode
+from readafp.goca import GocaGraphic, draw_goca
 from readafp.ioca import cmyk_jpeg_bands, image_blob, parse_image_segment
 from readafp.parser import StructuredField
 from readafp.triplets import iter_triplets, parse_mcf_codepages
@@ -143,6 +144,17 @@ class Rule:
 
 
 @dataclass
+class VectorGraphic:
+    """A GOCA vector graphic placed on a page, in page L-units."""
+
+    x: int
+    y: int
+    width: int   # bounding box in L-units (from OBD Object Area Size)
+    height: int
+    graphic: GocaGraphic  # SVG fragment in GPS-unit coordinate space
+
+
+@dataclass
 class Page:
     """One page's geometry and rough presentation-text content."""
 
@@ -152,6 +164,7 @@ class Page:
     texts: List[TextRun] = field(default_factory=list)
     rules: List[Rule] = field(default_factory=list)
     images: List[ImageRef] = field(default_factory=list)
+    graphics: List[VectorGraphic] = field(default_factory=list)
     truncated: bool = False  # content dropped after MAX_RUNS_PER_PAGE
 
     @property
@@ -658,6 +671,9 @@ def extract_pages(
     in_barcode = False
     barcode_bdd = b""
     barcode_bdas: List[bytes] = []
+    in_graphic = False
+    graphic_gdd = b""
+    graphic_gads: List[bytes] = []
 
     for f in fields:
         if f.sf_id == 0xD3A892:  # BOC opens an object container resource
@@ -700,9 +716,9 @@ def extract_pages(
                         if key:
                             image_resources.setdefault(key, obj)
                     loose_images.append(obj)
-        elif (in_image or in_barcode) and f.sf_id == 0xD3A66B:  # OBD
+        elif (in_image or in_barcode or in_graphic) and f.sf_id == 0xD3A66B:  # OBD
             image_obd = f.data
-        elif (in_image or in_barcode) and f.sf_id == 0xD3AC6B:  # OBP
+        elif (in_image or in_barcode or in_graphic) and f.sf_id == 0xD3AC6B:  # OBP
             image_obp = f.data
         elif in_image and f.sf_id == 0xD3EEFB:  # IPD: IOCA segment bytes
             image_ipd += f.data
@@ -737,6 +753,28 @@ def extract_pages(
                             data=png,
                             crisp=True,
                         )
+                    )
+        elif f.sf_id == 0xD3A8BB:  # BGR starts a graphics object
+            in_graphic = True
+            graphic_gdd = b""
+            graphic_gads = []
+            image_obd = image_obp = None
+        elif in_graphic and f.sf_id == 0xD3A6BB:  # GDD: graphics descriptor
+            graphic_gdd = f.data
+        elif in_graphic and f.sf_id == 0xD3EEBB:  # GAD: drawing order stream
+            graphic_gads.append(f.data)
+        elif f.sf_id == 0xD3A9BB and in_graphic:  # EGR completes it
+            in_graphic = False
+            if current is not None and graphic_gdd:
+                goca = draw_goca(graphic_gdd, b"".join(graphic_gads))
+                if goca is not None:
+                    ox, oy = _parse_obp(image_obp) if image_obp else (0, 0)
+                    obd = _parse_obd(image_obd) if image_obd else (None, 0, 0)
+                    upi = current.units_per_inch
+                    ow = _scale(obd[1], obd[0] or upi, upi)
+                    oh = _scale(obd[2], obd[0] or upi, upi)
+                    current.graphics.append(
+                        VectorGraphic(x=ox, y=oy, width=ow, height=oh, graphic=goca)
                     )
         elif f.sf_id == 0xD3AFC3 and current is not None:  # IOB places one
             image = _parse_iob(

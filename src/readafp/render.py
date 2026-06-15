@@ -11,7 +11,7 @@ import logging
 from typing import List
 from xml.sax.saxutils import escape, quoteattr
 
-from readafp.ptoca import MAX_RUNS_PER_PAGE, ImageRef, Page
+from readafp.ptoca import MAX_RUNS_PER_PAGE, ImageRef, Page, VectorGraphic
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +83,17 @@ def _fit(texts, i) -> str:
     return f' textLength="{avail}" lengthAdjust="spacing"'
 
 
+def _vector_graphic_markup(vg: VectorGraphic) -> str:
+    """Nested <svg> that maps GPS coordinates to L-unit page space."""
+    g = vg.graphic
+    return (
+        f'<svg x="{vg.x}" y="{vg.y}" width="{vg.width}" height="{vg.height}" '
+        f'viewBox="0 0 {g.gps_w} {g.gps_h}" overflow="hidden">'
+        f"{g.svg}"
+        f"</svg>"
+    )
+
+
 def page_to_svg(page: Page) -> str:
     """Build an SVG document string for one page."""
     parts: List[str] = [
@@ -114,6 +125,8 @@ def page_to_svg(page: Page) -> str:
         )
     for img in page.images:
         parts.append(_image_markup(img))
+    for vg in page.graphics:
+        parts.append(_vector_graphic_markup(vg))
     for i, run in enumerate(page.texts):
         weight = ' font-weight="bold"' if run.font_weight == "bold" else ""
         family = (
