@@ -44,6 +44,21 @@
       background: rgba(239, 83, 80, 0.15); border: 1px solid var(--warn);
       color: var(--warn); padding: 12px 16px; border-radius: 10px; margin-bottom: 20px;
     }
+    .resource-banner {
+      display: flex; gap: 12px; align-items: baseline;
+      background: #d32f2f; border: 1px solid #b71c1c;
+      border-radius: 10px; padding: 12px 16px; margin-bottom: 20px;
+    }
+    .resource-banner .rb-tag {
+      flex: none; background: #fff; color: #b71c1c; font-weight: 800;
+      font-size: 0.74rem; letter-spacing: 0.04em; text-transform: uppercase;
+      padding: 3px 8px; border-radius: 6px;
+    }
+    .resource-banner .rb-text { color: #fff; font-size: 0.86rem; line-height: 1.45; }
+    .resource-banner b { color: #fff; }
+    .resource-banner code {
+      font-family: Consolas, monospace; color: #ffe0e0; font-size: 0.82rem;
+    }
     .meta { color: var(--dim); margin: 0; font-size: 0.85rem; }
     .topbar-right { margin-left: auto; display: flex; gap: 10px; align-items: center; }
     .view-toggle { display: flex; gap: 0; border: 1px solid var(--border);
@@ -217,7 +232,7 @@
         <input type="checkbox" name="agree" required>
         <span>I agree — <button type="button" class="link-btn" id="agree-terms">terms</button></span>
       </label>
-      <button type="submit">Inspect</button>
+      <button type="submit">Inspect / Render</button>
     </form>
     {% if fields %}
     <span class="meta"><b>{{ filename }}</b> · {{ "{:,}".format(filesize) }} bytes ·
@@ -238,6 +253,18 @@
   </div>
 
   {% if error %}<div class="error">{{ error }}</div>{% endif %}
+
+  {% if resource_kind %}
+  <div class="resource-banner">
+    <span class="rb-tag">⚠ WARNING! AFP RESOURCE</span>
+    <span class="rb-text">This file is an AFP <b>{{ resource_kind }}</b>, not a printable
+      document — it has no pages (no <code>BDT…EDT</code> document structure for a
+      viewer to lay out), which is why most AFP viewers can't open it at all.
+      {% if page_svgs %}readAFP shows a synthesized view of its contents on the
+      right.{% else %}readAFP lists its structured fields below; it carries no
+      drawable content to render.{% endif %}</span>
+  </div>
+  {% endif %}
 
   {% if not fields and not error %}
   <div class="samples-section">
@@ -562,6 +589,16 @@
     document.getElementById("agree-terms").addEventListener("click", openAbout);
     aboutClose.addEventListener("click", () => aboutDlg.close());
     aboutDlg.addEventListener("click", (e) => { if (e.target === aboutDlg) aboutDlg.close(); });
+
+    // Remember the terms agreement for the rest of the browser session so
+    // it only has to be ticked once, not on every upload.
+    const agreeBox = document.querySelector('input[name=agree]');
+    if (agreeBox) {
+      if (sessionStorage.getItem("readafp-agreed") === "1") agreeBox.checked = true;
+      agreeBox.addEventListener("change", () => {
+        sessionStorage.setItem("readafp-agreed", agreeBox.checked ? "1" : "0");
+      });
+    }
 
     // Assemble the author's mailto in JS so the plain address never
     // appears in the page source for email harvesters to scrape.

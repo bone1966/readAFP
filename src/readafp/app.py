@@ -205,8 +205,40 @@ def _render_inspect(data: bytes, filename: str, codepage: str) -> str:
         codepages=CODEPAGES,
         codepage=codepage,
         mcf_note=_mcf_codepage_note(parsed),
+        resource_kind=_resource_kind(parsed),
         samples=SAMPLES,
     )
+
+
+# Begin-fields that mark a stream as a stand-alone AFP *resource* rather
+# than a document, in priority order (most specific first). SF ID is
+# 0xD3 + type 0xA8 (Begin) + the resource category code.
+_RESOURCE_KINDS = [
+    (0xD3A889, "font character set"),
+    (0xD3A88A, "coded font"),
+    (0xD3A887, "code page"),
+    (0xD3A8DF, "page overlay"),
+    (0xD3A85F, "page segment"),
+    (0xD3A892, "object container"),
+    (0xD3A8C6, "resource group"),
+    (0xD3A8CE, "object resource"),
+]
+
+
+def _resource_kind(parsed: List[StructuredField]) -> str:
+    """Classify a page-less AFP stream by its resource type.
+
+    Returns "" when the stream has real document pages (a BPG Begin Page)
+    — including a normal BDT document — otherwise the human-readable
+    resource kind. A BDT envelope that carries only fonts has no BPG, so
+    keying on the page (not the document) catches both the bare resource
+    and the resource-wrapped-in-a-document case, letting the UI warn that
+    the file has no pages and most viewers can't open it.
+    """
+    ids = {field.sf_id for field in parsed}
+    if 0xD3A8AF in ids:  # BPG present -> it has real document pages
+        return ""
+    return next((label for sid, label in _RESOURCE_KINDS if sid in ids), "")
 
 
 def _mcf_codepage_note(parsed: List[StructuredField]) -> str:

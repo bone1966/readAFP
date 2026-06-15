@@ -302,7 +302,8 @@ def test_page_overlay_composited_with_offset() -> None:
 
 
 def test_unincluded_overlay_renders_nothing() -> None:
-    # An overlay defined but never referenced by an IPO contributes no page.
+    # An overlay defined but never referenced by an IPO contributes no page
+    # when it sits inside a real document (one that has a BDT).
     ov = bytes.fromhex("2bd3") + bytes([2 + 2, 0xDA]) + "HI".encode("cp500")
     doc = (
         _sf(0xD3A8A8)
@@ -312,6 +313,34 @@ def test_unincluded_overlay_renders_nothing() -> None:
         + _sf(0xD3A9A8)
     )
     assert extract_pages(list(iter_fields(doc))) == []
+
+
+def test_standalone_overlay_resource_renders_as_page() -> None:
+    # A bare overlay *resource* (no BDT, no IPO) is shown as its own page,
+    # the way an AFP viewer opens a stand-alone overlay.
+    ov = (
+        bytes.fromhex("2bd3")
+        + bytes([4, 0xC7]) + b"\x02\xbc"          # AMI 700
+        + bytes([4, 0xD3]) + b"\x03\x20"          # AMB 800
+        + bytes([2 + 4, 0xDA]) + "HERE".encode("cp500")
+    )
+    res = (
+        _sf(0xD3A8DF, _ebc("STANDALN"))           # BMO (no enclosing BDT)
+        + _sf(0xD3EE9B, ov)                       # overlay PTX
+        + _sf(0xD3A9DF, _ebc("STANDALN"))         # EMO
+    )
+    pages = extract_pages(list(iter_fields(res)))
+    assert len(pages) == 1
+    assert "HERE" in pages[0].plain_text
+
+
+def test_cs_afp_overlay_resource_renders() -> None:
+    sample = TESTDATA / "github-samples" / "afplib" / "cs.afp"
+    if not sample.exists():
+        pytest.skip("cs.afp sample not present")
+    pages = extract_pages(parse_file(str(sample)))
+    assert len(pages) == 1
+    assert "Simplify" in pages[0].plain_text
 
 
 def test_real_overlay_text_lands_on_page() -> None:

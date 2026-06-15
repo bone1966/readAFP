@@ -4,11 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from readafp.app import create_app, _field_rows
+from readafp.app import create_app, _field_rows, _resource_kind
 from readafp.parser import parse_file
 
 TESTDATA = Path(__file__).parent.parent / "testdata"
 HEALTH_SAMPLE = TESTDATA / "sample1_health" / "01_Health_Coverage.afp"
+OUTLINE_FONT = TESTDATA / "github-samples" / "afplib" / "C0X00006.afp"
 
 
 def test_field_rows_tag_page_membership() -> None:
@@ -24,6 +25,35 @@ def test_field_rows_tag_page_membership() -> None:
     assert by_name["EPG (End Page)"]["page"] == 0
     # The document close comes after the page.
     assert by_name["EDT (End Document)"]["page"] is None
+
+
+def test_resource_kind_flags_pageless_font() -> None:
+    if not OUTLINE_FONT.exists():
+        pytest.skip("outline font fixture not present")
+    # A font character set has no BPG, so it is flagged as a resource.
+    assert _resource_kind(parse_file(str(OUTLINE_FONT))) == "font character set"
+
+
+def test_resource_kind_silent_for_document() -> None:
+    if not HEALTH_SAMPLE.exists():
+        pytest.skip("test corpus not present")
+    # A real document has pages, so no resource warning fires.
+    assert _resource_kind(parse_file(str(HEALTH_SAMPLE))) == ""
+
+
+def test_inspect_resource_shows_banner() -> None:
+    if not OUTLINE_FONT.exists():
+        pytest.skip("outline font fixture not present")
+    client = create_app().test_client()
+    with OUTLINE_FONT.open("rb") as handle:
+        response = client.post(
+            "/inspect",
+            data={"afpfile": (handle, OUTLINE_FONT.name)},
+            content_type="multipart/form-data",
+        )
+    html = response.get_data(as_text=True)
+    assert "resource-banner" in html
+    assert "font character set" in html
 
 
 def test_inspect_endpoint_links_rows_to_pages() -> None:

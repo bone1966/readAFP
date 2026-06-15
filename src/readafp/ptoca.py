@@ -871,6 +871,15 @@ def extract_pages(
         specimen = _font_specimen_pages(parse_fonts(fields))
         if specimen:
             return specimen
+    if not pages and overlays and not any(f.sf_id == 0xD3A8A8 for f in fields):
+        # Standalone overlay *resource* files (BMO...EMO with no enclosing
+        # document — no BDT — and no IPO to place them) carry their own
+        # geometry and content; present each as its own page, the way AFP
+        # viewers open a bare overlay. An overlay merely defined-but-unused
+        # inside a real document (which has a BDT) is left alone.
+        for overlay in overlays.values():
+            if overlay.texts or overlay.rules or overlay.images or overlay.graphics:
+                pages.append(overlay)
     if not pages and loose_images:
         # Standalone object / resource-only files have no pages to
         # place these on; show each image object at its own extent.
