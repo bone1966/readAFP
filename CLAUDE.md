@@ -164,14 +164,13 @@ local-id→name indirection is not yet handled.
   fitting (render still uses position-anchored width estimation; the
   primary health-coverage sample embeds no fonts, so it cannot benefit).
 - MPO (Map Page Overlay) local-id indirection — IPO-by-id files unhandled.
-- GOCA partial-arc (GPARC/GCPARC): circular-arc **sweep direction is
-  verified correct** across all quadrants and sweeps (ground truth in
-  `testdata/goca_arc_sample.afp`, regression in `test_goca.py`). The real
-  remaining gap is rotated/skewed-ellipse arcs — the SVG arc emits
-  `x-axis-rotation = 0`, so a rotated ellipse renders axis-aligned; the
-  rotation/axes aren't yet derived from the GSAP arc-parameter matrix
-  (needs the 2×2 matrix's SVD, plus sweep-flip on a negative determinant).
-  GOCA character-string orders are not implemented.
+- GOCA character-string orders are not implemented. (Partial arcs are
+  done: circular-arc sweep direction and rotated-ellipse orientation are
+  both verified — `_handle_gparc` derives the ellipse semi-axes, x-axis
+  rotation and sweep flag from the GSAP arc-parameter matrix, mirroring
+  the full-arc path. Ground truth in `testdata/goca_arc_sample.afp`,
+  regressions in `test_goca.py`. Skewed (non-orthogonal) arc matrices
+  still approximate, as the column-norm axes assume no shear.)
 - Unbracketed PTX fully handled (implicit page captures it, but no environment group).
 
 Done recently: STO text orientation (0/90/180/270°); FOCA raster-glyph

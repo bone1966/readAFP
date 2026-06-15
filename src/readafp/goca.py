@@ -623,8 +623,14 @@ def _handle_gparc(ctx: GocaContext, params: bytes, at_given: bool) -> None:
         return
 
     st = ctx.state
-    rx = math.sqrt(st.arc_p ** 2 + st.arc_r ** 2) * multiplier
-    ry = math.sqrt(st.arc_q ** 2 + st.arc_s ** 2) * multiplier
+    # Arc parameters give the unit-circle → ellipse transform M = [[p, q],
+    # [r, s]] (columns are the images of the x and y unit vectors), scaled
+    # by the multiplier. The semi-axes are the column norms and the major
+    # axis tilts with the x-column direction — matching the full-arc path.
+    p, q = st.arc_p * multiplier, st.arc_q * multiplier
+    r, s = st.arc_r * multiplier, st.arc_s * multiplier
+    rx = math.sqrt(p * p + r * r)
+    ry = math.sqrt(q * q + s * s)
     if rx < 1e-6 or ry < 1e-6:
         return
 
@@ -633,30 +639,32 @@ def _handle_gparc(ctx: GocaContext, params: bytes, at_given: bool) -> None:
     if sweep_deg < 1e-6:
         return
 
-    # In GPS: Y-up, angles CCW from +X. In SVG: Y-down, angles CW from +X.
-    # Flip Y means angle signs flip and sweep direction inverts.
-    start_svg = -start_deg  # negate for Y-flip (degrees, SVG clockwise)
-    sweep_svg = -sweep_deg
+    # x-axis rotation of the ellipse, negated for the SVG Y-flip.
+    angle_svg = -math.degrees(math.atan2(r, p)) or 0.0  # avoid "-0"
 
-    # Endpoints on the arc
-    scx, scy = _sx(ctx, gcx), _sy(ctx, gcy)
-    start_rad = math.radians(start_svg)
-    end_rad = math.radians(start_svg + sweep_svg)
+    # Arc endpoints: a unit-circle parameter angle a maps to the GPS point
+    # centre + M·(cos a, sin a); _sx/_sy then apply the Y-flip to screen.
+    def _endpoint(a_deg: float):
+        a = math.radians(a_deg)
+        ca, sa = math.cos(a), math.sin(a)
+        gx = gcx + p * ca + q * sa
+        gy = gcy + r * ca + s * sa
+        return _sx(ctx, gx), _sy(ctx, gy)
 
-    sx_start = scx + rx * math.cos(start_rad)
-    sy_start = scy + ry * math.sin(start_rad)
-    sx_end = scx + rx * math.cos(end_rad)
-    sy_end = scy + ry * math.sin(end_rad)
+    sx_start, sy_start = _endpoint(start_deg)
+    sx_end, sy_end = _endpoint(start_deg + sweep_deg)
 
-    # Line from (gx0, gy0) to arc start
+    # Line from (gx0, gy0) to the arc start.
     sx0, sy0 = _sx(ctx, gx0), _sy(ctx, gy0)
     large_arc = 1 if abs(sweep_deg) > 180 else 0
-    sweep_flag = 0  # CCW in SVG (because we negated the angle)
+    # GOCA sweeps CCW. The Y-flip reverses that to SVG flag 0; a reflecting
+    # arc matrix (negative determinant) reverses it once more.
+    sweep_flag = 0 if (p * s - q * r) >= 0 else 1
 
     d = (
         f"M {sx0:.3g},{sy0:.3g} "
         f"L {sx_start:.3g},{sy_start:.3g} "
-        f"A {rx:.3g},{ry:.3g} 0 {large_arc} {sweep_flag} "
+        f"A {rx:.3g},{ry:.3g} {angle_svg:.3g} {large_arc} {sweep_flag} "
         f"{sx_end:.3g},{sy_end:.3g}"
     )
     ctx.state.cx, ctx.state.cy = gcx, gcy  # arc centres current pos

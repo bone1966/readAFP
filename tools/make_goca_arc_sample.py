@@ -99,24 +99,36 @@ def _ptx(x, y, text) -> bytes:
     return bytes(out)
 
 
-# (start, sweep) cases with their expected on-screen shape.
+# (start, sweep, description, matrix) cases. matrix=None draws a circle;
+# otherwise (p, q, r, s) is the unit-circle → ellipse transform.
 ARCS = [
-    (0, 90, "start=0 sweep=90 (E->N, upper-right)"),
-    (0, 180, "start=0 sweep=180 (E->N->W, top half)"),
-    (0, 270, "start=0 sweep=270 (3/4, large arc)"),
-    (90, 90, "start=90 sweep=90 (N->W, upper-left)"),
-    (270, 90, "start=270 sweep=90 (S->E, lower-right)"),
-    (45, 90, "start=45 sweep=90 (NE->NW)"),
+    (0, 90, "start=0 sweep=90 (E->N, upper-right)", None),
+    (0, 180, "start=0 sweep=180 (E->N->W, top half)", None),
+    (0, 270, "start=0 sweep=270 (3/4, large arc)", None),
+    (90, 90, "start=90 sweep=90 (N->W, upper-left)", None),
+    (270, 90, "start=270 sweep=90 (S->E, lower-right)", None),
+    (45, 90, "start=45 sweep=90 (NE->NW)", None),
+    (0, 270, "rotated ellipse 45deg, 2:1 axes", "ellipse45"),
 ]
 
 
-def _arc_object(gps: int, start: float, sweep: float) -> bytes:
+def _arc_object(gps: int, start: float, sweep: float, matrix) -> bytes:
     cx = cy = gps // 2
     radius = int(gps * 0.36)
+    if matrix == "ellipse45":
+        import math
+        phi = math.radians(45)
+        a, b = radius, radius // 2  # major : minor = 2 : 1
+        p = round(a * math.cos(phi))
+        q = round(-b * math.sin(phi))
+        r = round(a * math.sin(phi))
+        s = round(b * math.cos(phi))
+    else:
+        p, q, r, s = radius, 0, 0, radius   # circle
     orders = (
         gspcol_rgb(0x11, 0x55, 0xCC)   # blue
         + gslw(10)
-        + gsap(radius, 0, 0, radius)   # circle of the given radius
+        + gsap(p, q, r, s)
         + gparc_at(cx, cy, cx, cy, start, sweep)
     )
     return _begin_segment(orders)
@@ -134,7 +146,7 @@ def build_afp() -> bytes:
     buf += _sf(0xD3A9C9)                                   # EAG
 
     labels = bytearray()
-    for i, (start, sweep, desc) in enumerate(ARCS):
+    for i, (start, sweep, desc, matrix) in enumerate(ARCS):
         col, row = i % cols, i // cols
         ox = margin + col * (cell + margin)
         oy = margin + row * (cell + margin)
@@ -142,7 +154,7 @@ def build_afp() -> bytes:
         buf += _sf(0xD3A66B, _obd(cell, cell))             # OBD
         buf += _sf(0xD3AC6B, _obp(ox, oy))                 # OBP
         buf += _sf(0xD3A6BB, _gdd(cell))                   # GDD
-        buf += _sf(0xD3EEBB, _arc_object(cell, start, sweep))  # GAD
+        buf += _sf(0xD3EEBB, _arc_object(cell, start, sweep, matrix))  # GAD
         buf += _sf(0xD3A9BB)                               # EGR
         labels += _ptx(ox, oy + cell + 220, desc)
 

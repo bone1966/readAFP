@@ -401,7 +401,10 @@ def test_partial_arc_sweep_directions() -> None:
     if not sample.exists():
         pytest.skip("run tools/make_goca_arc_sample.py to generate the sample")
     page = extract_pages(list(iter_fields(sample.read_bytes())))[0]
-    arcs = [_arc_endpoints(g.graphic.svg) for g in page.graphics]
+    # The first six cells are circular arcs (the 7th is a rotated ellipse,
+    # covered by test_partial_arc_rotated_ellipse_orientation).
+    assert len(page.graphics) == 7
+    arcs = [_arc_endpoints(g.graphic.svg) for g in page.graphics[:6]]
     assert len(arcs) == 6
 
     def close(a, b):
@@ -421,3 +424,32 @@ def test_partial_arc_sweep_directions() -> None:
         assert close(a0, e0) and close(a1, e1)
         assert large == elarge
         assert sweep == 0  # CCW on screen, never inverted for circular arcs
+
+
+def test_partial_arc_rotated_ellipse_orientation() -> None:
+    # A 45°-rotated ellipse (major axis 2R along 45°, minor R) must emit
+    # the SVG arc's x-axis-rotation, not render axis-aligned.
+    R = 200
+    phi = math.radians(45)
+    a, b = 2 * R, R
+    p = round(a * math.cos(phi))
+    q = round(-b * math.sin(phi))
+    r = round(a * math.sin(phi))
+    s = round(b * math.cos(phi))
+    cx = cy = 500
+    gsap = bytes([0x22, 8]) + struct.pack(">hhhh", p, q, r, s)
+    gparc = (
+        bytes([0xE3, 18])
+        + struct.pack(">hh", cx, cy) + struct.pack(">hh", cx, cy)
+        + bytes([1, 0])
+        + struct.pack(">I", 0) + struct.pack(">I", 90 * 65536)
+    )
+    gad = _begin_segment(gsap + gparc)
+    page = extract_pages(_synthetic_afp(_gdd_bytes(), gad))[0]
+    svg = page.graphics[0].graphic.svg
+    m = re.search(r"A ([\d.eE+-]+),([\d.eE+-]+) ([\d.eE+-]+) \d \d", svg)
+    assert m, svg
+    rx, ry, rot = (float(v) for v in m.groups())
+    assert rx == pytest.approx(a, abs=2)   # major semi-axis
+    assert ry == pytest.approx(b, abs=2)   # minor semi-axis
+    assert rot == pytest.approx(-45, abs=1)  # tilt, not 0
