@@ -19,6 +19,7 @@ previews.
 | BCOCA bar codes — QR symbols generated with segno | ✅ |
 | GOCA vector graphics — lines, boxes, arcs, Bézier curves, area fills | ✅ |
 | FOCA raster fonts — embedded bitmap glyphs rendered as a specimen sheet | ✅ |
+| Page overlays — BMO/EMO content composited onto pages via IPO | ✅ |
 | Rotated text — STO orientation (0/90/180/270°) | ✅ |
 | FOCA outline fonts (Type 1 / CID) — parsed to metrics only, not rasterized | ❌ |
 | GOCA partial-arc and character-string orders | partial |
@@ -40,11 +41,13 @@ Drop any `.afp` file on the page — or try one of the bundled samples:
 | `testdata/github-samples/afplib_ende.afp` | BCOCA QR bar code |
 | `testdata/goca_sample.afp` | Synthetic GOCA sample — filled rect, zigzag, ellipse, Bézier |
 | `testdata/foca_sample.afp` | Embedded raster fonts — Times-Roman & Courier glyph specimen |
+| `testdata/bcoca_sample.afp` | Synthetic BCOCA QR bar code (repo URL) |
+| `testdata/overlay_sample.afp` | Page overlay — letterhead/footer composited via IPO |
 
 ## Test
 
 ```bash
-pytest          # 98 tests
+pytest          # 114 tests
 pytest tests/test_goca.py -v   # GOCA decoder only
 ```
 
@@ -63,7 +66,7 @@ src/readafp/
   app.py        # Flask app (POST /inspect)
   templates/index.html   # split-pane UI
 
-tests/          # 98 pytest tests (one file per module)
+tests/          # 114 pytest tests (one file per module)
 testdata/
   sample1_health/        # modern TrueType AFP + PDF ground truth
   alpheus-corpus/        # 138 AFP files from alpheusafpparser test suite
