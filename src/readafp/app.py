@@ -83,6 +83,17 @@ SAMPLES = [
             "one page per embedded typeface (Times-Roman and Courier)."
         ),
     },
+    {
+        "name": "bcoca_qr",
+        "file": "bcoca_qr.afp",
+        "label": "BCOCA QR bar code",
+        "desc": (
+            "A bar code object (BBC/BDD/BDA) describing a QR Code symbol — "
+            "AFP stores the symbology, module size and data, not a picture. "
+            "readAFP reads the descriptor, generates the matrix with segno, "
+            "and draws it crisp. Scan it: it points to this project's repo."
+        ),
+    },
 ]
 
 
