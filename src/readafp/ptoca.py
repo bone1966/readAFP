@@ -111,6 +111,7 @@ class TextRun:
     font_size: int = DEFAULT_FONT_SIZE
     font_family: str = "Arial"
     font_weight: str = "normal"
+    orientation: int = 0  # clockwise degrees (0/90/180/270) from STO
     src: Optional[int] = None  # offset of the PTX field that produced it
 
 
@@ -315,6 +316,9 @@ class _TextState:
         # inline position, like a text dump, instead of letting runs
         # without explicit moves pile up on one endless line.
         self.wrap_width: Optional[int] = None
+        # STO inline direction as clockwise degrees (0=right,90=down,
+        # 180=left,270=up); also determines coordinate axis mapping.
+        self.orientation: int = 0
         # Keep the caller's dict: it may be filled by MDRs seen later
         # (the page's AEG comes after BPG).
         self.fonts = fonts if fonts is not None else {}
@@ -342,7 +346,11 @@ class _TextState:
             self.color = _STC_COLORS.get(_u16(p), DEFAULT_COLOR)
         elif t == 0x80:  # SEC
             self.color = _sec_color(p) or self.color
-        elif t == 0xF6:  # STO resets coordinates with the new orientation
+        elif t == 0xF6 and len(p) >= 2:  # STO
+            # INLORENT is a u16 in units of 1/128 degree, CW from +X.
+            # Standard values: 0=right, 11520=90°CW=down, 23040=180°=left,
+            # 34560=270°CW=up.  Position resets to the page origin.
+            self.orientation = (_u16(p) // 128) % 360
             self.i = 0
             self.b = 0
         elif t == 0xDA:  # TRN
@@ -363,16 +371,23 @@ class _TextState:
                 self.b += int(size * 1.4)
             if text.strip():
                 if len(page.texts) < MAX_RUNS_PER_PAGE:
+                    # For 90°/270°: inline is the vertical axis and
+                    # baseline is horizontal, so swap to page coords.
+                    if self.orientation in (90, 270):
+                        tx, ty = self.b, self.i
+                    else:
+                        tx, ty = self.i, self.b
                     page.texts.append(
                         TextRun(
-                            x=self.i,
-                            y=self.b,
+                            x=tx,
+                            y=ty,
                             text=text,
                             color=self.color,
                             font_id=self.font_id,
                             font_size=size,
                             font_family=info.family,
                             font_weight=info.weight,
+                            orientation=self.orientation,
                             src=self.field_offset,
                         )
                     )

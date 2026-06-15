@@ -262,3 +262,84 @@ def test_extract_pages_empty_document() -> None:
     if not sample.exists():
         pytest.skip("test corpus not present")
     assert extract_pages(parse_file(str(sample))) == []
+
+
+# ---------------------------------------------------------------------------
+# STO (Set Text Orientation) tests
+# ---------------------------------------------------------------------------
+
+def _sto_doc(inlorent: int) -> bytes:
+    """One-page AFP with STO(inlorent) + AMI(100) + AMB(200) + TRN('A')."""
+    ptx = (
+        bytes.fromhex("2bd3")           # escape
+        + bytes([6, 0xF7])              # STO chained, length=6
+        + inlorent.to_bytes(2, "big")   # INLORENT
+        + b"\x00\x00"                   # REFORNT (ignored for now)
+        + bytes([4, 0xC7])              # AMI chained, length=4
+        + b"\x00\x64"                   # inline pos = 100
+        + bytes([4, 0xD3])              # AMB chained, length=4
+        + b"\x00\xc8"                   # baseline pos = 200
+        + bytes([3, 0xDA])              # TRN unchained, length=3
+        + b"\xc1"                       # 'A' in cp500
+    )
+    return _sf(0xD3A8AF) + _sf(0xD3EE9B, ptx) + _sf(0xD3A9AF)
+
+
+def test_sto_zero_is_normal_coords() -> None:
+    pages = extract_pages(list(iter_fields(_sto_doc(0))))
+    run = pages[0].texts[0]
+    assert run.orientation == 0
+    assert (run.x, run.y) == (100, 200)  # i→x, b→y unchanged
+
+
+def test_sto_90_swaps_and_rotates() -> None:
+    # INLORENT=11520 = 90×128 → inline goes down
+    pages = extract_pages(list(iter_fields(_sto_doc(11520))))
+    run = pages[0].texts[0]
+    assert run.orientation == 90
+    assert (run.x, run.y) == (200, 100)  # b→x, i→y for 90°/270°
+
+
+def test_sto_180_no_coord_swap() -> None:
+    # INLORENT=23040 = 180×128 → inline goes left
+    pages = extract_pages(list(iter_fields(_sto_doc(23040))))
+    run = pages[0].texts[0]
+    assert run.orientation == 180
+    assert (run.x, run.y) == (100, 200)  # no swap for 0°/180°
+
+
+def test_sto_270_swaps_and_rotates() -> None:
+    # INLORENT=34560 = 270×128 → inline goes up
+    pages = extract_pages(list(iter_fields(_sto_doc(34560))))
+    run = pages[0].texts[0]
+    assert run.orientation == 270
+    assert (run.x, run.y) == (200, 100)  # b→x, i→y for 90°/270°
+
+
+def test_sto_rotation_in_svg() -> None:
+    pages = extract_pages(list(iter_fields(_sto_doc(11520))))
+    svg = page_to_svg(pages[0])
+    assert 'transform="rotate(90,200,100)"' in svg
+
+
+def test_sto_zero_no_transform_in_svg() -> None:
+    pages = extract_pages(list(iter_fields(_sto_doc(0))))
+    svg = page_to_svg(pages[0])
+    assert "transform=" not in svg
+
+
+def test_sto_resets_position() -> None:
+    # After STO, i and b reset to 0; any move before STO doesn't carry over.
+    ptx = (
+        bytes.fromhex("2bd3")
+        + bytes([4, 0xC7]) + b"\x05\xdc"  # AMI(1500) chained
+        + bytes([4, 0xD3]) + b"\x07\xd0"  # AMB(2000) chained
+        + bytes([6, 0xF7]) + b"\x00\x00\x00\x00"  # STO(0) chained → resets i,b
+        + bytes([4, 0xC7]) + b"\x00\x64"   # AMI(100) chained
+        + bytes([4, 0xD3]) + b"\x00\xc8"   # AMB(200) chained
+        + bytes([3, 0xDA]) + b"\xc1"        # TRN('A') unchained
+    )
+    doc = _sf(0xD3A8AF) + _sf(0xD3EE9B, ptx) + _sf(0xD3A9AF)
+    pages = extract_pages(list(iter_fields(doc)))
+    run = pages[0].texts[0]
+    assert (run.x, run.y) == (100, 200)  # pre-STO moves discarded

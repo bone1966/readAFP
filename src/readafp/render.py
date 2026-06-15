@@ -135,9 +135,14 @@ def page_to_svg(page: Page) -> str:
             else ""
         )
         src = f' data-src="{run.src}"' if run.src is not None else ""
+        rot = (
+            f' transform="rotate({run.orientation},{run.x},{run.y})"'
+            if run.orientation
+            else ""
+        )
         parts.append(
             f'<text x="{run.x}" y="{run.y}" font-size="{run.font_size}"'
-            f"{family}{weight}{src}{_fit(page.texts, i)} "
+            f"{family}{weight}{src}{rot}{_fit(page.texts, i)} "
             f'fill={quoteattr(run.color)}>{escape(run.text)}</text>'
         )
     if page.truncated:
