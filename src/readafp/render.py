@@ -71,6 +71,10 @@ def _fit(texts, i) -> str:
     gaps and short runs from triggering visible distortion.
     """
     run = texts[i]
+    if run.orientation:
+        # textLength stretches along the horizontal axis; a rotated run's
+        # advance is not horizontal, so the implied-width fit doesn't apply.
+        return ""
     nxt = texts[i + 1] if i + 1 < len(texts) else None
     if nxt is None or nxt.y != run.y or nxt.x <= run.x:
         return ""

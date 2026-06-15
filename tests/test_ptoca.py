@@ -328,6 +328,29 @@ def test_sto_zero_no_transform_in_svg() -> None:
     assert "transform=" not in svg
 
 
+def test_sto_180_runs_skip_textlength_fit() -> None:
+    # Two runs on the same baseline at 180°: same y, increasing x — the
+    # condition that would otherwise trigger _fit's textLength stretch.
+    # Rotated runs must skip it (textLength is a horizontal-only metric).
+    ptx = (
+        bytes.fromhex("2bd3")
+        + bytes([6, 0xF7]) + (23040).to_bytes(2, "big") + b"\x00\x00"  # STO 180
+        + bytes([4, 0xC7]) + b"\x00\x64"          # AMI(100)
+        + bytes([4, 0xD3]) + b"\x00\xc8"          # AMB(200)
+        + bytes([7, 0xDB]) + "Hello".encode("cp500")  # TRN chained
+        + bytes([4, 0xC7]) + b"\x03\xe8"          # AMI(1000)
+        + bytes([7, 0xDA]) + "World".encode("cp500")  # TRN unchained
+    )
+    doc = _sf(0xD3A8AF) + _sf(0xD3EE9B, ptx) + _sf(0xD3A9AF)
+    pages = extract_pages(list(iter_fields(doc)))
+    runs = pages[0].texts
+    assert [r.orientation for r in runs] == [180, 180]
+    assert runs[0].y == runs[1].y and runs[1].x > runs[0].x  # _fit's trigger
+    svg = page_to_svg(pages[0])
+    assert "textLength" not in svg  # must be skipped for rotated text
+    assert 'transform="rotate(180' in svg
+
+
 def test_sto_resets_position() -> None:
     # After STO, i and b reset to 0; any move before STO doesn't carry over.
     ptx = (
