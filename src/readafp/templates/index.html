@@ -152,6 +152,15 @@
     }
     @keyframes runflash { 50% { opacity: 0.2; } }
     .render-note { color: #aab0c6; font-size: 0.8rem; }
+    .agree-label {
+      display: flex; align-items: center; gap: 5px;
+      color: var(--dim); font-size: 0.82rem; white-space: nowrap; cursor: pointer;
+    }
+    .agree-label input[type=checkbox] { accent-color: var(--accent); width: 14px; height: 14px; }
+    .link-btn {
+      background: none; border: none; padding: 0; cursor: pointer;
+      color: var(--accent); font-size: 0.82rem; text-decoration: underline;
+    }
     .btn-ghost {
       background: transparent; border: 1px solid var(--border); color: var(--dim);
       font-weight: 500; font-size: 0.85rem; padding: 4px 12px;
@@ -194,6 +203,10 @@
         <option value="{{ value }}"{{ " selected" if value == codepage }}>{{ label }}</option>
         {% endfor %}
       </select>
+      <label class="agree-label" title="Uploaded files are processed in-memory and not stored on the server">
+        <input type="checkbox" name="agree" required>
+        <span>I agree — <button type="button" class="link-btn" id="agree-terms">terms</button></span>
+      </label>
       <button type="submit">Inspect</button>
     </form>
     {% if fields %}
@@ -530,7 +543,9 @@
     const aboutBtn = document.getElementById("about-btn");
     const aboutDlg = document.getElementById("about-dlg");
     const aboutClose = document.getElementById("about-close");
-    aboutBtn.addEventListener("click", () => aboutDlg.showModal());
+    function openAbout() { aboutDlg.showModal(); }
+    aboutBtn.addEventListener("click", openAbout);
+    document.getElementById("agree-terms").addEventListener("click", openAbout);
     aboutClose.addEventListener("click", () => aboutDlg.close());
     aboutDlg.addEventListener("click", (e) => { if (e.target === aboutDlg) aboutDlg.close(); });
   </script>
