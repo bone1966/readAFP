@@ -250,6 +250,25 @@ def _s16(b: bytes, off: int = 0) -> int:
     return int.from_bytes(b[off : off + 2], "big", signed=True)
 
 
+def _substitute_font(typeface: str) -> Optional[Tuple[str, str]]:
+    """Pick a CSS (family, weight) for a FOCA typeface, or None to skip.
+
+    A document's embedded character set names its typeface (e.g.
+    "COURIER", "TIMES-ROMAN", "TIMES-BOLD"); mapping that to a matching
+    web font makes substitute text far closer to the original metrics than
+    Arial, which also stops the inline-width fit from over-stretching it.
+    """
+    t = typeface.upper()
+    weight = "bold" if "BOLD" in t else "normal"
+    if "COURIER" in t or "MONO" in t:
+        return "Courier New, monospace", weight
+    if "TIMES" in t or "ROMAN" in t or "SERIF" in t:
+        return "Times New Roman, serif", weight
+    if "HELVETICA" in t or "ARIAL" in t or "SANS" in t:
+        return "Arial, sans-serif", weight
+    return None
+
+
 def parse_mdr_fonts(data: bytes) -> Dict[int, FontInfo]:
     """Extract font name/size per local id from an MDR (Map Data Resource).
 
@@ -770,10 +789,18 @@ def extract_pages(
     # a local id to them. embedded_text_fonts is filled by the MCF handler
     # and shared by reference with each _TextState.
     code_pages = _scan_code_pages(fields)
+    _parsed_fonts = parse_fonts(fields)
     char_set_glyphs = {
         font.name: {g.gcgid: g for g in font.glyphs}
-        for font in parse_fonts(fields)
+        for font in _parsed_fonts
         if font.glyphs and font.name
+    }
+    # Even when a char set's glyphs can't be drawn (its code page is
+    # external), its typeface tells us a better substitute font than Arial.
+    char_set_typefaces = {
+        font.name: font.typeface
+        for font in _parsed_fonts
+        if font.name and font.typeface
     }
     embedded_text_fonts: Dict[int, _EmbeddedFont] = {}
     resources: Dict[str, bytes] = {}
@@ -947,6 +974,11 @@ def extract_pages(
                     embedded_text_fonts[lid] = _EmbeddedFont(
                         cp_map, glyphs, ref
                     )
+                # Choose a substitute font from the char set's typeface
+                # (MDR, if present, already set a better one).
+                sub = _substitute_font(char_set_typefaces.get(cs_name or "", ""))
+                if sub and lid not in fonts:
+                    fonts[lid] = FontInfo(family=sub[0], weight=sub[1])
         elif f.sf_id == 0xD3A6AF and len(f.data) >= 12:  # PGD
             parsed = _parse_pgd(f.data)
             if current is not None:

@@ -91,7 +91,13 @@ Page(width, height, units_per_inch, texts, rules, images, truncated)
 
 - `page_to_svg(page)` — builds SVG; viewBox in L-units.
 - Rules: `<rect>` extending in +I (right) or +B (down) direction from position.
-- Text: substitute fonts (Arial); `textLength` + `lengthAdjust="spacing"` stretches run to AFP-implied width based on next run's position (`_fit()`). Ratio-guarded to avoid excessive distortion.
+- Text: substitute fonts. The family comes from MDR, else from the
+  embedded character set's typeface via `_substitute_font()` (COURIER →
+  monospace, TIMES → serif, HELVETICA → sans), else Arial — so even when
+  a char set's glyphs can't be drawn (external code page) its real metrics
+  are approximated, which also curbs over-stretching. `textLength` +
+  `lengthAdjust="spacing"` stretches a run to the AFP-implied width from
+  the next run's position (`_fit()`), ratio-guarded against distortion.
 - Images: `<image>` with base64 data URI. CMYK planes use `<filter>` + `mix-blend-mode: multiply`. Bilevel/barcode: `image-rendering: pixelated` (`crisp=True`).
 
 ## Rendering Fidelity Principle
