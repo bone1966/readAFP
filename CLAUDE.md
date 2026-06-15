@@ -23,6 +23,7 @@ src/readafp/
   triplets.py  # MO:DCA triplet decoding + describe_field()
   ioca.py      # IOCA image segment decoder → IocaImage / PNG / JPEG
   bcoca.py     # BCOCA bar code decoder → BarCode + QR PNG via segno
+  goca.py      # GOCA drawing-order decoder → GocaGraphic / SVG fragment
   app.py       # Flask app (POST /inspect), create_app()
   templates/index.html   # split-pane UI
 
@@ -112,6 +113,6 @@ Category codes: `0xA8`=Document, `0xAF`=Page, `0x9B`=Presentation Text, `0xFB`=I
 ## What's Not Yet Implemented
 
 - FOCA (font object) — raster and TrueType font metrics; text width currently approximated.
-- GOCA (graphics object) — vector drawing orders.
 - Rotated text (STO sets non-zero orientation).
+- GOCA partial-arc (GPARC/GCPARC) and character-string orders — partially implemented; arc sweep direction may be off for some angles.
 - Unbracketed PTX fully handled (implicit page captures it, but no environment group).
