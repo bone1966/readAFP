@@ -25,6 +25,7 @@ from readafp.goca import GocaGraphic, draw_goca
 from readafp.ioca import cmyk_jpeg_bands, image_blob, parse_image_segment
 from readafp.parser import StructuredField
 from readafp.triplets import iter_triplets, parse_mcf_codepages
+from readafp.type1 import glyph_to_path_d
 
 logger = logging.getLogger(__name__)
 
@@ -1040,14 +1041,103 @@ def _font_specimen_pages(fonts: List[Font]) -> List[Page]:
 _OUTLINE_CHARS_SHOWN = 256
 
 
-def _outline_font_page(font: Font) -> Page:
-    """Build a metadata page for an outline font (no glyph shapes).
+def _outline_glyph_page(font: Font) -> Page:
+    """Lay out an outline font's decoded glyph shapes as a specimen grid.
 
-    Lists the typeface, pattern technology and a grid of GCGID + inline
-    increment from the Font Index, so the file surfaces its contents
-    instead of rendering blank. Long fonts are truncated with a count of
-    the remaining characters.
+    Each glyph is drawn as an SVG path nested in a VectorGraphic, scaled
+    from the font's design-unit em and sat on a common baseline, labeled by
+    its glyph name (or GCGID). This is the font's true printed shape.
     """
+    upi = 1440
+    page_w = 12240
+    margin = 600
+    title_size = 440  # ~22pt
+    sub_size = 220  # ~11pt
+    label_size = 160  # ~8pt
+    cell_w = 1500
+    cell_h = 1500
+    glyph_h = 1000  # drawn glyph height in L-units
+    grid_top = 1640
+
+    em = font.units_per_em or 1000
+    ascent = round(0.80 * em)
+    descent = round(0.24 * em)
+    box_h = ascent + descent  # design-unit height of the drawn box
+    gw = round(glyph_h * em / box_h)  # L-unit width of the em-square box
+
+    drawable = [
+        (cm, font.outline_glyphs[cm.gcgid])
+        for cm in font.chars
+        if cm.gcgid in font.outline_glyphs
+        and font.outline_glyphs[cm.gcgid].segments
+    ]
+    cols = max(1, (page_w - 2 * margin) // cell_w)
+    rows = (len(drawable) + cols - 1) // cols
+    page = Page(
+        width=page_w,
+        height=grid_top + rows * cell_h + margin,
+        units_per_inch=upi,
+    )
+    label = font.typeface or font.name or "embedded font"
+    page.texts.append(
+        TextRun(
+            x=margin, y=margin,
+            text=f"Embedded outline font: {label}",
+            font_size=title_size, font_weight="bold", fit=False,
+        )
+    )
+    page.texts.append(
+        TextRun(
+            x=margin, y=margin + sub_size + 160,
+            text=f"{len(drawable)} glyphs · {font.tech_label} · "
+                 f"{em}-unit em — actual embedded outlines",
+            color="#666666", font_size=sub_size, fit=False,
+        )
+    )
+    for i, (cm, glyph) in enumerate(drawable):
+        col, row = i % cols, i // cols
+        cell_x = margin + col * cell_w
+        cell_y = grid_top + row * cell_h
+        # Path in the box's own (y-down) space: baseline at y=ascent.
+        d = glyph_to_path_d(glyph, scale=1, ox=0, oy=ascent)
+        page.graphics.append(
+            VectorGraphic(
+                x=cell_x + (cell_w - gw) // 2,
+                y=cell_y,
+                width=gw,
+                height=glyph_h,
+                graphic=GocaGraphic(
+                    svg=f'<path d="{d}" fill="#1a1a2a"/>',
+                    gps_w=em,
+                    gps_h=box_h,
+                ),
+            )
+        )
+        page.texts.append(
+            TextRun(
+                x=cell_x + 40,
+                y=cell_y + glyph_h + label_size + 40,
+                text=cm.name or cm.gcgid,
+                color="#666666",
+                font_size=label_size,
+                font_family="Consolas",
+                fit=False,
+            )
+        )
+    return page
+
+
+def _outline_font_page(font: Font) -> Page:
+    """Build a specimen page for an outline font.
+
+    When the Type 1 outlines were decoded, draw the actual glyph shapes in
+    a labeled grid (what the font would print). Otherwise fall back to a
+    metadata page listing the typeface, technology and per-character
+    increments, so the file still surfaces its contents instead of
+    rendering blank.
+    """
+    if any(g.segments for g in font.outline_glyphs.values()):
+        return _outline_glyph_page(font)
     upi = 1440
     page_w = 12240
     margin = 600

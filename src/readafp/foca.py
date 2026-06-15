@@ -23,6 +23,7 @@ import struct
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
+from readafp import type1
 from readafp.ioca import pack_png
 from readafp.parser import StructuredField
 
@@ -94,6 +95,8 @@ class Font:
     chars: List[CharMetric] = field(default_factory=list)  # unique outline
     orientations: int = 1  # distinct rotations the FNI lists per character
     outline_format: str = ""  # detected from FNG payload, e.g. Type 1 PFB
+    units_per_em: int = 0  # design-unit em for outline glyphs (0 = unknown)
+    outline_glyphs: Dict[str, "type1.Glyph"] = field(default_factory=dict)
 
     @property
     def is_raster(self) -> bool:
@@ -269,6 +272,31 @@ def _dedup_orientations(raw: List[CharMetric]) -> tuple:
     return chars, max(1, orientations)
 
 
+def _decode_outlines(
+    fng: bytes, chars: List[CharMetric]
+) -> tuple:
+    """Decode each character's Type 1 outline from the FNG program.
+
+    Returns (units_per_em, {GCGID: Glyph}). Only Adobe Type 1 (PFB) fonts
+    are interpreted; on any failure the outlines come back empty and the
+    caller falls back to a metrics-only specimen.
+    """
+    try:
+        font = type1.Type1Font(fng)
+    except (ValueError, IndexError, struct.error) as exc:
+        logger.warning("Type 1 program decode failed: %s", exc)
+        return 0, {}
+    if not font.glyph_names:
+        return 0, {}
+    outlines: Dict[str, "type1.Glyph"] = {}
+    for cm in chars:
+        if cm.name and font.has_glyph(cm.name):
+            glyph = font.glyph(cm.name)
+            if glyph is not None:
+                outlines[cm.gcgid] = glyph
+    return font.units_per_em, outlines
+
+
 def parse_fonts(fields: List[StructuredField]) -> List[Font]:
     """Extract every BFN...EFN font character set from a parsed file.
 
@@ -312,6 +340,8 @@ def parse_fonts(fields: List[StructuredField]) -> List[Font]:
             chars: List[CharMetric] = []
             orientations = 1
             outline_format = ""
+            units_per_em = 0
+            outline_glyphs: Dict[str, "type1.Glyph"] = {}
             if tech == PATTECH_RASTER and fnm and fng:
                 try:
                     glyphs = _decode_raster_glyphs(fnc, fni, fnm, fng)
@@ -330,6 +360,7 @@ def parse_fonts(fields: List[StructuredField]) -> List[Font]:
                     logger.warning("FOCA FNI metrics decode failed for "
                                    "%s: %s", name, exc)
                 outline_format = _sniff_outline_format(fng)
+                units_per_em, outline_glyphs = _decode_outlines(fng, chars)
             fonts.append(
                 Font(
                     name=name,
@@ -339,6 +370,8 @@ def parse_fonts(fields: List[StructuredField]) -> List[Font]:
                     chars=chars,
                     orientations=orientations,
                     outline_format=outline_format,
+                    units_per_em=units_per_em,
+                    outline_glyphs=outline_glyphs,
                 )
             )
     return fonts

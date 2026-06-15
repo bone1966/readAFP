@@ -93,19 +93,20 @@ def test_outline_font_resolves_glyph_names() -> None:
     assert names["GD010000"] == "delta"
 
 
-def test_outline_font_renders_metadata_page() -> None:
+def test_outline_font_renders_glyph_specimen() -> None:
     if not OUTLINE.exists():
         pytest.skip("outline font fixture not present")
     pages = extract_pages(list(iter_fields(OUTLINE.read_bytes())))
     assert len(pages) == 1, "outline font must not render blank"
     page = pages[0]
-    assert not page.images  # no rasterized glyphs
     assert page.texts[0].text.startswith("Embedded outline font:")
-    assert any("not rasterized" in t.text for t in page.texts)
-    # The character grid lists GCGID + increment entries.
+    # Type 1 outlines are decoded, so the page draws actual glyph shapes
+    # (one VectorGraphic per glyph) labeled by name, not a metadata table.
+    assert page.graphics, "no glyph outlines drawn"
     assert any(t.font_family == "Consolas" for t in page.texts)
     svg = page_to_svg(page)
     assert "Embedded outline font" in svg
+    assert svg.count("<path") == len(page.graphics) > 100
 
 
 def test_typeface_name_strips_grid_suffix() -> None:
