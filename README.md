@@ -21,8 +21,12 @@ previews.
 | FOCA raster fonts — embedded bitmap glyphs rendered as a specimen sheet | ✅ |
 | Page overlays — BMO/EMO content composited onto pages via IPO | ✅ |
 | Rotated text — STO orientation (0/90/180/270°) | ✅ |
-| FOCA outline fonts (Type 1 / CID) — parsed to metrics only, not rasterized | ❌ |
+| FOCA outline fonts — Adobe Type 1 (PFB) glyphs rasterized to real shapes; CFF/CID fall back to a metadata sheet | ✅ |
+| AFP resource files — page-less font/overlay/image resources flagged; standalone overlays & images rendered | ✅ |
+| Missing-resource detection — names external code pages / character sets a document references but doesn't embed | ✅ |
 | GOCA partial-arc and character-string orders | partial |
+| True CFF / CID-keyed (Type 0) outline fonts — Type 2 charstrings | ❌ |
+| Embedded fonts driving document text (Phase B) — needs IBM code-page → GCGID tables | ❌ |
 
 ## Run
 

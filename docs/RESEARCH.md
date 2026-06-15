@@ -19,7 +19,7 @@ document is carried by per-type "Object Content Architectures":
 | IOCA | raster images | `ioca-reference-09.pdf` |
 | GOCA | vector graphics | `afp-goca-reference-03.pdf` |
 | BCOCA | bar codes | `bcoca-reference-11.pdf` |
-| FOCA | fonts (raster + outline metadata) | `foca-reference-06.pdf` |
+| FOCA | fonts (raster bitmaps + Type 1 outline glyphs) | `foca-reference-06.pdf` |
 | Line Data | legacy line-mode data + page defs | `linedata-reference-05.pdf` |
 
 The specs are maintained by the **AFP Consortium** and are free PDFs:
