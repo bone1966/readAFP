@@ -297,6 +297,44 @@ def _decode_outlines(
     return font.units_per_em, outlines
 
 
+_FNO = 0xD3AE89  # Font Orientation
+_PATTECH_NAMES = {
+    PATTECH_RASTER: "laser-matrix raster",
+    PATTECH_TYPE1: "Type 1 outline",
+    PATTECH_CID: "CID/Type 1 outline",
+}
+
+
+def describe_foca_field(field: "StructuredField") -> str:
+    """A readable one-line summary of a FOCA font metric field, or "".
+
+    Covers the fixed-format font fields that carry no triplets — FND (Font
+    Descriptor), FNC (Font Control) and FNO (Font Orientation) — decoding
+    the values an AFP inspector shows (face name, weight/width class, glyph
+    box extent, pattern technology, advance). Offsets verified against a
+    known font.
+    """
+    sid, d = field.sf_id, field.data
+    if sid == FND and len(d) >= 36:  # Font Descriptor
+        name = _decode_name(d[:32]) or "?"
+        weight, width = d[32], d[33]
+        max_vert = struct.unpack(">H", d[34:36])[0]
+        return (f"FaceName={name} WeightClass={weight} WidthClass={width} "
+                f"MaxVertSize={max_vert / 10:g}pt")
+    if sid == FNC and len(d) >= 20:  # Font Control
+        tech = _PATTECH_NAMES.get(d[1], f"0x{d[1]:02X}")
+        max_w = struct.unpack(">H", d[10:12])[0] + 1
+        max_h = struct.unpack(">H", d[12:14])[0] + 1
+        psize = struct.unpack(">H", d[18:20])[0]
+        return (f"MaxW={max_w} MaxH={max_h} PatternsSize={psize} "
+                f"FontTech={tech}")
+    if sid == _FNO and len(d) >= 10:  # Font Orientation
+        rotation = struct.unpack(">H", d[0:2])[0]
+        space_inc = struct.unpack(">H", d[8:10])[0]
+        return f"CharRotation={rotation} SpaceCharInc={space_inc}"
+    return ""
+
+
 def parse_code_page(cpi: bytes) -> Dict[int, str]:
     """Map each code point to its GCGID from a Code Page Index (CPI).
 

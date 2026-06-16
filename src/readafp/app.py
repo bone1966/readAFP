@@ -9,6 +9,7 @@ from typing import Any, Dict, List
 from flask import Flask, abort, render_template, request
 
 from readafp import __version__
+from readafp.foca import describe_foca_field
 from readafp.parser import AfpParseError, StructuredField, iter_fields
 from readafp.ptoca import (
     extract_pages,
@@ -369,6 +370,9 @@ def _field_data_summary(
         from readafp.ptoca import _parse_pgd
         w, h, upi = _parse_pgd(field.data)
         return f"page {w}×{h} L-units · {upi} units/inch"
+    foca = describe_foca_field(field)  # FND / FNC / FNO metrics
+    if foca:
+        return foca
     if triplets:
         bits = []
         for t in triplets[:3]:

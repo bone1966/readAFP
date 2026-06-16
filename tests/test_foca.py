@@ -142,3 +142,18 @@ def test_no_fonts_yields_no_specimen() -> None:
     pages = extract_pages(list(iter_fields(doc)))
     assert len(pages) == 1
     assert pages[0].texts[0].text == "A"  # normal render, not a specimen
+
+
+def test_describe_foca_field_decodes_metrics() -> None:
+    if not SAMPLE1.exists():
+        pytest.skip("Sample 1 not present")
+    from readafp.foca import describe_foca_field
+    fields = parse_file(str(SAMPLE1))
+    fnd = describe_foca_field(next(f for f in fields if f.sf_id == 0xD3A689))
+    assert "FaceName=TIMES-ROMAN@0" in fnd
+    assert "WeightClass=7" in fnd and "WidthClass=5" in fnd
+    fnc = describe_foca_field(next(f for f in fields if f.sf_id == 0xD3A789))
+    assert "MaxW=174" in fnc and "MaxH=171" in fnc
+    assert "PatternsSize=15582" in fnc
+    fno = describe_foca_field(next(f for f in fields if f.sf_id == 0xD3AE89))
+    assert "CharRotation=0" in fno and "SpaceCharInc=250" in fno
