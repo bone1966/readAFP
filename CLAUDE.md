@@ -193,9 +193,16 @@ local-id→name indirection is not yet handled.
   layout/encoding is unconfirmed. Verify against a real sample when one
   turns up.
 
-Done recently: an inspector **Find** feature (`_field_search_text` +
-`setupFind` in `index.html`) — search PTX text, NOP text (the hidden
-comment/metadata payloads), or field type, with case toggle and prev/next;
+Done recently: a readable inspector **"Field data" column**
+(`app._field_data_summary` + `foca.describe_foca_field`) decoding each
+field to a one-line summary — PTX/NOP/TLE text, PGD/PTD/IDD geometry,
+FND/FNC/FNP/FNO/FNI/FNM font metrics, CPD/CPC/CPI code pages, MCF/MIO/OBD/
+OBP/IPD object maps, else a triplet rundown or hex; field-size column now
+reports the full record (data + 9-byte header) like AFP inspectors; an
+inspector **Find** feature (`_field_search_text` + `setupFind` in
+`index.html`) — search PTX text, NOP text (the hidden comment/metadata
+payloads), TLE tags, or field type, with case toggle, prev/next, in-place
+match highlighting and multi-select field-count filtering;
 STO text orientation (0/90/180/270°); FOCA raster-glyph
 specimens; FOCA outline-font specimens — Type 1 PFB charstrings rasterized
 to real glyph shapes (`type1.py`), with metadata-sheet fallback (PFB

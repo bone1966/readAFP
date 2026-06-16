@@ -5,8 +5,22 @@ A web app for reading AFP (Advanced Function Presentation / MO:DCA) files.
 Upload an AFP file and get a split-pane view: the full structured-field tree on
 the left, an SVG render of each page on the right.  The two panes are linked —
 clicking a field jumps the render to its page, paging the render scrolls the
-inspector.  Fields expand to show decoded triplets, per-type counts, and hex
-previews.
+inspector.
+
+## Inspector
+
+The structured-field tree reads in plain language, not just hex:
+
+- **Readable "Field data" column** — each field is decoded to a one-line
+  summary: PTX/NOP/TLE text, page/text/image geometry (PGD/PTD/IDD), font
+  metrics (FND/FNC/FNP/FNO/FNI/FNM), code pages (CPD/CPC/CPI), and object
+  maps (MCF/MIO/OBD/OBP/IPD), with a triplet rundown or hex as fallback. Full
+  structured-field sizes match standard AFP inspectors.
+- **Find** — search PTX text, NOP text (hidden comments/metadata), TLE tags,
+  or field type, with case toggle, prev/next, and the match highlighted in
+  place; a PTX hit also jumps and flashes the rendered text.
+- **Multi-select filter** — click field-type counts to show several types at
+  once; click a field to expand its decoded triplets.
 
 ## What renders
 
