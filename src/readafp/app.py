@@ -9,7 +9,7 @@ from typing import Any, Dict, List
 from flask import Flask, abort, render_template, request
 
 from readafp import __version__
-from readafp.foca import describe_foca_field
+from readafp.foca import _decode_name, describe_foca_field
 from readafp.parser import AfpParseError, StructuredField, iter_fields
 from readafp.ptoca import (
     extract_pages,
@@ -361,8 +361,18 @@ def _field_search_text(field: StructuredField) -> str:
     return ""
 
 
+def _glyph_list(label: str, items: List[str]) -> str:
+    """Format an indexed glyph/pattern list, e.g. '12 chars: 0=.., 1=..'."""
+    shown = ", ".join(f"{i}={v}" for i, v in enumerate(items[:8]))
+    more = f", +{len(items) - 8} more" if len(items) > 8 else ""
+    return f"{len(items)} {label}: {shown}{more}"
+
+
 def _field_data_summary(
-    field: StructuredField, search_text: str, triplets: List[Dict[str, Any]]
+    field: StructuredField,
+    search_text: str,
+    triplets: List[Dict[str, Any]],
+    font_fnc: bytes = b"",
 ) -> str:
     """A readable one-line summary of a field's contents, or "".
 
@@ -430,6 +440,19 @@ def _field_data_summary(
                 f"AreaRot={b(8, 10) // 128},{b(10, 12) // 128} "
                 f"ContentPos={b(13, 16)},{b(16, 19)} "
                 f"ContentRot={b(19, 21) // 128},{b(21, 23) // 128}")
+    if field.sf_id == 0xD38C89 and font_fnc:  # FNI (Font Index)
+        rg = font_fnc[15] if len(font_fnc) > 15 else 28
+        if rg >= 8:
+            gcgids = [_decode_name(field.data[i : i + 8])
+                      for i in range(0, len(field.data) - rg + 1, rg)]
+            return _glyph_list("chars", gcgids)
+    if field.sf_id == 0xD3A289 and len(field.data) >= 8:  # FNM (Patterns Map)
+        boxes = [
+            f"{int.from_bytes(field.data[i:i+2], 'big') + 1}x"
+            f"{int.from_bytes(field.data[i+2:i+4], 'big') + 1}"
+            for i in range(0, len(field.data) - 7, 8)
+        ]
+        return _glyph_list("patterns", boxes)
     foca = describe_foca_field(field)  # FND / FNC / FNO metrics
     if foca:
         return foca
@@ -455,7 +478,14 @@ def _field_rows(parsed: List[StructuredField]) -> List[Dict[str, Any]]:
     depth = 0
     page_idx = -1
     current_page: Any = None
+    font_fnc = b""  # current font's FNC, for decoding its FNI record length
     for field in parsed:
+        if field.sf_id == 0xD3A889:  # BFN
+            font_fnc = b""
+        elif field.sf_id == 0xD3A789:  # FNC
+            font_fnc = field.data
+        elif field.sf_id == 0xD3A989:  # EFN
+            font_fnc = b""
         if field.type_code == 0xA9 and depth > 0:  # End fields close a level
             depth -= 1
         if field.sf_id == 0xD3A8AF:  # BPG
@@ -479,7 +509,8 @@ def _field_rows(parsed: List[StructuredField]) -> List[Dict[str, Any]]:
                 "page": current_page,
                 "triplets": triplets,
                 "search_text": search_text,
-                "data": _field_data_summary(field, search_text, triplets),
+                "data": _field_data_summary(
+                    field, search_text, triplets, font_fnc),
             }
         )
         if field.sf_id == 0xD3A9AF:  # EPG

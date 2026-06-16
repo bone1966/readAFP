@@ -140,6 +140,19 @@ def test_field_data_summaries_decode_geometry() -> None:
     assert "778×497" in rows["IDD"]["data"] and "300×300" in rows["IDD"]["data"]
 
 
+def test_field_data_summaries_decode_font_arrays() -> None:
+    if not SAMPLE1.exists():
+        pytest.skip("Sample 1 not present")
+    all_rows = _field_rows(parse_file(str(SAMPLE1)))
+    # FNI uses the enclosing font's FNC record length to list GCGIDs; the
+    # TIMES-BOLD font's index starts LA010000, LA020000, LD010000.
+    fni = " ".join(r["data"] for r in all_rows if r["name"].startswith("FNI"))
+    assert "0=LA010000" in fni and "1=LA020000" in fni
+    # FNM lists each pattern's box (+1); that font's first box is 20x21.
+    fnm = " ".join(r["data"] for r in all_rows if r["name"].startswith("FNM"))
+    assert "0=20x21" in fnm and "1=29x29" in fnm
+
+
 def test_inspect_endpoint_links_rows_to_pages() -> None:
     if not HEALTH_SAMPLE.exists():
         pytest.skip("test corpus not present")
