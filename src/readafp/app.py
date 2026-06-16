@@ -23,9 +23,16 @@ from readafp.triplets import (
     codec_for_codepage_name,
     describe_field,
     iter_triplets,
+    mcf_font_resources,
     mcf_resource_names,
     parse_mcf_codepages,
 )
+
+# Object Area Mapping option (Mapping Option triplet X'04') values.
+_MAPPING_OPTIONS = {
+    0x00: "Position", 0x10: "Position and Trim", 0x20: "Scale to Fit",
+    0x30: "Center and Trim", 0x41: "Replicate and Trim", 0x60: "Scale to Fill",
+}
 
 logger = logging.getLogger(__name__)
 
@@ -381,6 +388,27 @@ def _field_data_summary(
         w = int.from_bytes(d[5:7], "big")
         h = int.from_bytes(d[7:9], "big")
         return f"image {w}×{h} pels · {dx}×{dy} DPI"
+    if field.sf_id in (MCF_FORMAT_1, MCF_FORMAT_2):  # Map Coded Font
+        res = mcf_font_resources(field.data, format1=field.sf_id == MCF_FORMAT_1)
+        if res:
+            return "; ".join(
+                f"{lid}:(CP={cp or '?'} CS={cs or '?'})"
+                for lid, (cp, cs) in res.items()
+            )
+    if field.sf_id == 0xD3ABFB:  # MIO (Map IO Image Object)
+        for tid, tdata in iter_triplets(field.data[2:]):  # past RG length
+            if tid == 0x04 and tdata:  # Mapping Option
+                opt = _MAPPING_OPTIONS.get(tdata[0], f"option 0x{tdata[0]:02X}")
+                return f"Image-to-Object Mapping={opt}"
+    if field.sf_id == 0xD3EEFB:  # IPD (IOCA image picture data)
+        d = field.data
+        # Only the band-start IPD begins with the Image Data SDF (0xFE92);
+        # continuation IPDs carry raw bytes (and 0xFE92 can occur inside the
+        # JPEG, so scanning would give a false length).
+        if d[:2] == b"\xfe\x92" and len(d) >= 4:
+            return (f"ImageDataLen={int.from_bytes(d[2:4], 'big')} "
+                    f"<image data>")
+        return f"image data ({len(d)} bytes)"
     foca = describe_foca_field(field)  # FND / FNC / FNO metrics
     if foca:
         return foca
