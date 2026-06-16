@@ -186,8 +186,14 @@ local-id→name indirection is not yet handled.
   regressions in `test_goca.py`. Skewed (non-orthogonal) arc matrices
   still approximate, as the column-norm axes assume no shear.)
 - Unbracketed PTX fully handled (implicit page captures it, but no environment group).
+- TLE (Tag Logical Element, `0xD3A090`) text is not searchable by the Find
+  feature yet — no corpus file carries a TLE, so the triplet layout can't
+  be validated; deferred until a sample exists.
 
-Done recently: STO text orientation (0/90/180/270°); FOCA raster-glyph
+Done recently: an inspector **Find** feature (`_field_search_text` +
+`setupFind` in `index.html`) — search PTX text, NOP text (the hidden
+comment/metadata payloads), or field type, with case toggle and prev/next;
+STO text orientation (0/90/180/270°); FOCA raster-glyph
 specimens; FOCA outline-font specimens — Type 1 PFB charstrings rasterized
 to real glyph shapes (`type1.py`), with metadata-sheet fallback (PFB
 detection, orientation dedup, FNN glyph names, fit-exempt grid); a red
