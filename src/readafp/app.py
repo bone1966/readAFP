@@ -21,6 +21,7 @@ from readafp.triplets import (
     MCF_FORMAT_2,
     codec_for_codepage_name,
     describe_field,
+    iter_triplets,
     mcf_resource_names,
     parse_mcf_codepages,
 )
@@ -313,13 +314,23 @@ def _mcf_codepage_note(parsed: List[StructuredField]) -> str:
     return ", ".join(labels)
 
 
+def _readable(data: bytes) -> str:
+    """Decode a byte string as whichever of EBCDIC / ASCII is more printable."""
+    ebcdic = data.decode("cp500", "replace")
+    ascii_ = data.decode("latin-1", "replace")
+    printable = lambda s: sum(c.isprintable() for c in s)
+    best = ebcdic if printable(ebcdic) >= printable(ascii_) else ascii_
+    return " ".join(best.split())
+
+
 def _field_search_text(field: StructuredField) -> str:
     """Decode the searchable text a field carries, for the Find feature.
 
     PTX yields its presentation text (the TRN runs); NOP yields its
     payload, which conventionally holds human-readable comments / job and
-    generator metadata not shown in the render, decoded as whichever of
-    EBCDIC / ASCII looks more printable. Other fields carry no text.
+    generator metadata not shown in the render; TLE yields its indexing
+    tag's attribute name and value triplets (FQN X'02' + Attribute Value
+    X'36'). Other fields carry no text.
     """
     if field.sf_id == 0xD3EE9B:  # PTX
         runs = [
@@ -329,11 +340,16 @@ def _field_search_text(field: StructuredField) -> str:
         ]
         return " ".join(r for r in runs if r.strip())
     if field.sf_id == 0xD3EEEE:  # NOP
-        ebcdic = field.data.decode("cp500", "replace")
-        ascii_ = field.data.decode("latin-1", "replace")
-        printable = lambda s: sum(c.isprintable() for c in s)
-        best = ebcdic if printable(ebcdic) >= printable(ascii_) else ascii_
-        return " ".join(best.split())
+        return _readable(field.data)
+    if field.sf_id == 0xD3A090:  # TLE (Tag Logical Element) — indexing tag
+        # The attribute name (FQN X'02') and value (X'36') both carry two
+        # leading bytes (FQN type/format, or reserved) before the text.
+        parts = [
+            _readable(tdata[2:])
+            for tid, tdata in iter_triplets(field.data)
+            if tid in (0x02, 0x36) and len(tdata) > 2
+        ]
+        return " ".join(p for p in parts if p)
     return ""
 
 

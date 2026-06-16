@@ -186,9 +186,12 @@ local-id→name indirection is not yet handled.
   regressions in `test_goca.py`. Skewed (non-orthogonal) arc matrices
   still approximate, as the column-norm axes assume no shear.)
 - Unbracketed PTX fully handled (implicit page captures it, but no environment group).
-- TLE (Tag Logical Element, `0xD3A090`) text is not searchable by the Find
-  feature yet — no corpus file carries a TLE, so the triplet layout can't
-  be validated; deferred until a sample exists.
+- TLE (Tag Logical Element, `0xD3A090`) Find support is **coded and ready**
+  (`_field_search_text` decodes its FQN X'02' name + X'36' value triplets,
+  searchable under the Find "TLE tags" mode) but only validated against a
+  synthetic field — no corpus file carries a TLE, so the real triplet
+  layout/encoding is unconfirmed. Verify against a real sample when one
+  turns up.
 
 Done recently: an inspector **Find** feature (`_field_search_text` +
 `setupFind` in `index.html`) — search PTX text, NOP text (the hidden

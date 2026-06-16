@@ -334,6 +334,7 @@
         <select id="find-mode" title="What to search">
           <option value="ptx">PTX text</option>
           <option value="nop">NOP text</option>
+          <option value="tle">TLE tags</option>
           <option value="type">Field type</option>
         </select>
         <label class="find-case" title="Case sensitive">
@@ -353,7 +354,7 @@
         <tr><th>Offset</th><th>ID</th><th>Structured field</th><th>Name</th>
             <th>Data len</th><th>Data preview (hex)</th></tr>
         {% for f in fields %}
-        <tr data-name="{{ f.name }}" data-offset="{{ f.offset }}"{% if f.page is not none %} data-page="{{ f.page }}"{% endif %}{% if f.search_text %} data-search="{{ f.search_text }}" data-kind="{{ 'ptx' if f.sf_id == '0xD3EE9B' else 'nop' }}"{% endif %}>
+        <tr data-name="{{ f.name }}" data-offset="{{ f.offset }}"{% if f.page is not none %} data-page="{{ f.page }}"{% endif %}{% if f.search_text %} data-search="{{ f.search_text }}" data-kind="{% if f.sf_id == '0xD3EE9B' %}ptx{% elif f.sf_id == '0xD3EEEE' %}nop{% else %}tle{% endif %}"{% endif %}>
           <td class="num">{{ f.offset }}</td>
           <td class="hex">{{ f.sf_id }}</td>
           <td class="sf-name" style="padding-left: {{ 12 + f.depth * 18 }}px">{{ f.name }}</td>

@@ -113,6 +113,17 @@ def test_field_search_text_decodes_nop_and_ptx() -> None:
     ptx_data = bytes.fromhex("2bd3") + bytes([2 + 5, 0xDA]) + "Hello".encode("cp500")
     ptx = list(iter_fields(sf(0xD3EE9B, ptx_data)))[0]
     assert "Hello" in _field_search_text(ptx)
+    # TLE indexing tag: attribute name (FQN X'02') + value (X'36'). No
+    # corpus file carries a TLE, so this validates the layout synthetically.
+    def trip(tid: int, data: bytes) -> bytes:
+        return bytes([len(data) + 2, tid]) + data
+
+    tle_data = (
+        trip(0x02, bytes([0x0B, 0x00]) + "CustomerID".encode("cp500"))
+        + trip(0x36, b"\x00\x00" + "12345".encode("cp500"))
+    )
+    tle = list(iter_fields(sf(0xD3A090, tle_data)))[0]
+    assert _field_search_text(tle) == "CustomerID 12345"
     # Other fields carry no searchable text.
     bpg = list(iter_fields(sf(0xD3A8AF, b"\x00" * 8)))[0]
     assert _field_search_text(bpg) == ""
