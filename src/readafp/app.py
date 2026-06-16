@@ -370,6 +370,17 @@ def _field_data_summary(
         from readafp.ptoca import _parse_pgd
         w, h, upi = _parse_pgd(field.data)
         return f"page {w}×{h} L-units · {upi} units/inch"
+    if field.sf_id in (0xD3A69B, 0xD3B19B) and len(field.data) >= 12:  # PTD
+        from readafp.ptoca import _parse_pgd
+        w, h, upi = _parse_pgd(field.data)
+        return f"text area {w}×{h} L-units · {upi} units/inch"
+    if field.sf_id == 0xD3A6FB and len(field.data) >= 9:  # IDD (IOCA)
+        d = field.data
+        dx = int.from_bytes(d[1:3], "big") // 10
+        dy = int.from_bytes(d[3:5], "big") // 10
+        w = int.from_bytes(d[5:7], "big")
+        h = int.from_bytes(d[7:9], "big")
+        return f"image {w}×{h} pels · {dx}×{dy} DPI"
     foca = describe_foca_field(field)  # FND / FNC / FNO metrics
     if foca:
         return foca

@@ -129,6 +129,17 @@ def test_field_search_text_decodes_nop_and_ptx() -> None:
     assert _field_search_text(bpg) == ""
 
 
+def test_field_data_summaries_decode_geometry() -> None:
+    if not SAMPLE1.exists():
+        pytest.skip("Sample 1 not present")
+    rows = {r["name"].split(" ")[0]: r for r in _field_rows(parse_file(str(SAMPLE1)))}
+    # Field sizes include the 9-byte SF header (matches AFP inspectors).
+    assert rows["FND"]["size"] == 89 and rows["PGD"]["size"] == 24
+    # PTD/IDD geometry decode like AFPexplorer.
+    assert "12240×15840" in rows["PTD"]["data"] and "1440" in rows["PTD"]["data"]
+    assert "778×497" in rows["IDD"]["data"] and "300×300" in rows["IDD"]["data"]
+
+
 def test_inspect_endpoint_links_rows_to_pages() -> None:
     if not HEALTH_SAMPLE.exists():
         pytest.skip("test corpus not present")
