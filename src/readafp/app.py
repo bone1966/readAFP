@@ -409,6 +409,27 @@ def _field_data_summary(
             return (f"ImageDataLen={int.from_bytes(d[2:4], 'big')} "
                     f"<image data>")
         return f"image data ({len(d)} bytes)"
+    if field.sf_id == 0xD3A66B:  # OBD (Object Area Descriptor)
+        parts: Dict[str, str] = {}
+        for tid, td in iter_triplets(field.data):
+            if tid == 0x4C and len(td) >= 7:  # Object Area Size
+                parts["size"] = (f"Size={int.from_bytes(td[1:4], 'big')}×"
+                                 f"{int.from_bytes(td[4:7], 'big')}")
+            elif tid == 0x4B and len(td) >= 6:  # Object Area Measurement
+                parts["dpi"] = (f"DPI={int.from_bytes(td[2:4], 'big') // 10}×"
+                                f"{int.from_bytes(td[4:6], 'big') // 10}")
+            elif tid == 0x43 and td:  # Object Area Position descriptor
+                parts["pos"] = f"DescriptorPos={td[0]}"
+        ordered = [parts[k] for k in ("size", "dpi", "pos") if k in parts]
+        if ordered:
+            return " ".join(ordered)
+    if field.sf_id == 0xD3AC6B and len(field.data) >= 23:  # OBP
+        d = field.data
+        b = lambda a, z: int.from_bytes(d[a:z], "big")
+        return (f"AreaPos={b(2, 5)},{b(5, 8)} "
+                f"AreaRot={b(8, 10) // 128},{b(10, 12) // 128} "
+                f"ContentPos={b(13, 16)},{b(16, 19)} "
+                f"ContentRot={b(19, 21) // 128},{b(21, 23) // 128}")
     foca = describe_foca_field(field)  # FND / FNC / FNO metrics
     if foca:
         return foca
