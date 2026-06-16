@@ -103,6 +103,23 @@
     .summary div:hover { background: var(--card); }
     .summary div.active { background: var(--card); color: var(--accent); }
     .summary span:last-child { color: var(--dim); font-variant-numeric: tabular-nums; }
+    .find-bar { display: flex; gap: 6px; align-items: center; margin-bottom: 10px; }
+    .find-bar #find-input { flex: 1; min-width: 80px; background: var(--card);
+      border: 1px solid var(--border); color: var(--text); border-radius: 6px;
+      padding: 5px 8px; font-size: 0.85rem; }
+    .find-bar select { background: var(--card); border: 1px solid var(--border);
+      color: var(--text); border-radius: 6px; padding: 5px; font-size: 0.82rem; }
+    .find-bar .find-case { color: var(--dim); font-size: 0.8rem; display: flex;
+      align-items: center; gap: 3px; cursor: pointer; user-select: none; }
+    .find-bar button { background: var(--card); border: 1px solid var(--border);
+      color: var(--text); border-radius: 6px; padding: 4px 8px; cursor: pointer; }
+    .find-bar button:hover { border-color: var(--accent); color: var(--accent); }
+    .find-bar button:disabled { opacity: 0.4; cursor: default; }
+    .find-count { color: var(--dim); font-size: 0.78rem; min-width: 56px;
+      font-variant-numeric: tabular-nums; }
+    #sf-table tr.find-match td { background: rgba(255, 193, 7, 0.12); }
+    #sf-table tr.find-current td { background: rgba(255, 193, 7, 0.34); }
+    #sf-table tr.find-current td:first-child { box-shadow: inset 3px 0 0 #ffc107; }
     #sf-table tr[data-page] { cursor: pointer; }
     #sf-table tr.filtered { display: none; }
     #sf-table tr.selected td { background: rgba(38, 198, 218, 0.12); }
@@ -312,6 +329,20 @@
 
   <div class="split{% if not page_svgs %} inspect-only{% endif %}" id="split">
     <div class="pane" id="inspect-pane">
+      <div class="find-bar">
+        <input type="search" id="find-input" placeholder="Find…" autocomplete="off">
+        <select id="find-mode" title="What to search">
+          <option value="ptx">PTX text</option>
+          <option value="nop">NOP text</option>
+          <option value="type">Field type</option>
+        </select>
+        <label class="find-case" title="Case sensitive">
+          <input type="checkbox" id="find-case"> Aa
+        </label>
+        <button type="button" id="find-prev" title="Previous match">▲</button>
+        <button type="button" id="find-next" title="Next match">▼</button>
+        <span id="find-count" class="find-count"></span>
+      </div>
       <div class="summary">
         <h3>Field counts <span style="font-weight:400;color:var(--dim)">— click to filter</span></h3>
         {% for name, count in summary %}
@@ -322,7 +353,7 @@
         <tr><th>Offset</th><th>ID</th><th>Structured field</th><th>Name</th>
             <th>Data len</th><th>Data preview (hex)</th></tr>
         {% for f in fields %}
-        <tr data-name="{{ f.name }}" data-offset="{{ f.offset }}"{% if f.page is not none %} data-page="{{ f.page }}"{% endif %}>
+        <tr data-name="{{ f.name }}" data-offset="{{ f.offset }}"{% if f.page is not none %} data-page="{{ f.page }}"{% endif %}{% if f.search_text %} data-search="{{ f.search_text }}" data-kind="{{ 'ptx' if f.sf_id == '0xD3EE9B' else 'nop' }}"{% endif %}>
           <td class="num">{{ f.offset }}</td>
           <td class="hex">{{ f.sf_id }}</td>
           <td class="sf-name" style="padding-left: {{ 12 + f.depth * 18 }}px">{{ f.name }}</td>
@@ -524,6 +555,87 @@
         }
       });
     });
+
+    // Find: search PTX text / NOP text / field type and step through hits.
+    (function setupFind() {
+      const input = document.getElementById("find-input");
+      if (!input) return;
+      const modeSel = document.getElementById("find-mode");
+      const caseBox = document.getElementById("find-case");
+      const prevBtn = document.getElementById("find-prev");
+      const nextBtn = document.getElementById("find-next");
+      const countEl = document.getElementById("find-count");
+      const allRows = Array.from(
+        document.querySelectorAll("#sf-table tr[data-offset]"));
+      let matches = [];
+      let cur = -1;
+
+      function rowHay(tr, mode) {
+        if (mode === "type") return tr.dataset.name || "";
+        if (tr.dataset.kind !== mode) return null;  // ptx/nop kind must match
+        return tr.dataset.search || "";
+      }
+      function focusCurrent() {
+        allRows.forEach((tr) => tr.classList.remove("find-current"));
+        if (cur < 0) return;
+        const tr = matches[cur];
+        tr.classList.remove("filtered");
+        tr.classList.add("find-current");
+        tr.scrollIntoView({ block: "center", behavior: "smooth" });
+        // A PTX hit on a page: jump there and flash its rendered text.
+        if (modeSel.value === "ptx" && tr.dataset.page !== undefined &&
+            sheet && parseInt(tr.dataset.page, 10) < svgs.length) {
+          const p = parseInt(tr.dataset.page, 10);
+          showPage(p, false);
+          sheet.querySelectorAll(`[data-src="${tr.dataset.offset}"]`)
+            .forEach((el) => el.classList.add("run-flash"));
+        }
+      }
+      function updateCount() {
+        countEl.textContent = matches.length
+          ? `${cur + 1} / ${matches.length}`
+          : (input.value ? "no matches" : "");
+        prevBtn.disabled = nextBtn.disabled = matches.length < 2;
+      }
+      function recompute() {
+        allRows.forEach((tr) =>
+          tr.classList.remove("find-match", "find-current"));
+        const q = input.value;
+        const mode = modeSel.value;
+        if (!q) { matches = []; cur = -1; updateCount(); return; }
+        // Find and field-count filter don't mix: clear the filter.
+        document.querySelectorAll(".summary div.active")
+          .forEach((c) => c.classList.remove("active"));
+        document.querySelectorAll("#sf-table tr.filtered")
+          .forEach((tr) => tr.classList.remove("filtered"));
+        const cs = caseBox.checked;
+        const needle = cs ? q : q.toLowerCase();
+        matches = allRows.filter((tr) => {
+          const hay = rowHay(tr, mode);
+          if (hay === null) return false;
+          return (cs ? hay : hay.toLowerCase()).includes(needle);
+        });
+        matches.forEach((tr) => tr.classList.add("find-match"));
+        cur = matches.length ? 0 : -1;
+        focusCurrent();
+        updateCount();
+      }
+      function step(d) {
+        if (!matches.length) return;
+        cur = (cur + d + matches.length) % matches.length;
+        focusCurrent();
+        updateCount();
+      }
+      input.addEventListener("input", recompute);
+      modeSel.addEventListener("change", recompute);
+      caseBox.addEventListener("change", recompute);
+      nextBtn.addEventListener("click", () => step(1));
+      prevBtn.addEventListener("click", () => step(-1));
+      input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") { e.preventDefault(); step(e.shiftKey ? -1 : 1); }
+      });
+      updateCount();
+    })();
 
     // View toggle: inspect-only / split / render-only.
     const split = document.getElementById("split");

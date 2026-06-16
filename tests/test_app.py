@@ -7,9 +7,11 @@ import pytest
 from readafp.app import (
     create_app,
     _field_rows,
+    _field_search_text,
     _missing_resources,
     _resource_kind,
 )
+from readafp.parser import iter_fields
 from readafp.parser import parse_file
 
 TESTDATA = Path(__file__).parent.parent / "testdata"
@@ -98,6 +100,22 @@ def test_no_missing_resources_for_clean_document() -> None:
     if not HEALTH_SAMPLE.exists():
         pytest.skip("test corpus not present")
     assert _missing_resources(parse_file(str(HEALTH_SAMPLE))) == []
+
+
+def test_field_search_text_decodes_nop_and_ptx() -> None:
+    # NOP carries human-readable metadata; the Find feature must surface it.
+    def sf(sf_id: int, data: bytes) -> bytes:
+        body = sf_id.to_bytes(3, "big") + b"\x00\x00\x00" + data
+        return b"\x5a" + (len(body) + 2).to_bytes(2, "big") + body
+
+    nop = list(iter_fields(sf(0xD3EEEE, "Sample AFP file".encode("cp500"))))[0]
+    assert _field_search_text(nop) == "Sample AFP file"
+    ptx_data = bytes.fromhex("2bd3") + bytes([2 + 5, 0xDA]) + "Hello".encode("cp500")
+    ptx = list(iter_fields(sf(0xD3EE9B, ptx_data)))[0]
+    assert "Hello" in _field_search_text(ptx)
+    # Other fields carry no searchable text.
+    bpg = list(iter_fields(sf(0xD3A8AF, b"\x00" * 8)))[0]
+    assert _field_search_text(bpg) == ""
 
 
 def test_inspect_endpoint_links_rows_to_pages() -> None:

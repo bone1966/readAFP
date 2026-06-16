@@ -10,7 +10,11 @@ from flask import Flask, abort, render_template, request
 
 from readafp import __version__
 from readafp.parser import AfpParseError, StructuredField, iter_fields
-from readafp.ptoca import extract_pages
+from readafp.ptoca import (
+    extract_pages,
+    iter_control_sequences,
+    _decode_trn,
+)
 from readafp.render import pages_to_svgs
 from readafp.triplets import (
     MCF_FORMAT_1,
@@ -309,11 +313,36 @@ def _mcf_codepage_note(parsed: List[StructuredField]) -> str:
     return ", ".join(labels)
 
 
+def _field_search_text(field: StructuredField) -> str:
+    """Decode the searchable text a field carries, for the Find feature.
+
+    PTX yields its presentation text (the TRN runs); NOP yields its
+    payload, which conventionally holds human-readable comments / job and
+    generator metadata not shown in the render, decoded as whichever of
+    EBCDIC / ASCII looks more printable. Other fields carry no text.
+    """
+    if field.sf_id == 0xD3EE9B:  # PTX
+        runs = [
+            _decode_trn(cs.params)
+            for cs in iter_control_sequences(field.data)
+            if cs.cs_type == 0xDA  # TRN
+        ]
+        return " ".join(r for r in runs if r.strip())
+    if field.sf_id == 0xD3EEEE:  # NOP
+        ebcdic = field.data.decode("cp500", "replace")
+        ascii_ = field.data.decode("latin-1", "replace")
+        printable = lambda s: sum(c.isprintable() for c in s)
+        best = ebcdic if printable(ebcdic) >= printable(ascii_) else ascii_
+        return " ".join(best.split())
+    return ""
+
+
 def _field_rows(parsed: List[StructuredField]) -> List[Dict[str, Any]]:
     """Flatten structured fields into display rows with nesting depth.
 
     Each row also carries the index of the page (BPG...EPG bracket) it
-    belongs to, so the UI can link inspector rows to rendered pages.
+    belongs to, so the UI can link inspector rows to rendered pages, and
+    the decoded text PTX/NOP fields carry, so the UI can search it.
     """
     rows: List[Dict[str, Any]] = []
     depth = 0
@@ -336,6 +365,7 @@ def _field_rows(parsed: List[StructuredField]) -> List[Dict[str, Any]]:
                 "preview": field.data[:16].hex(" "),
                 "page": current_page,
                 "triplets": describe_field(field),
+                "search_text": _field_search_text(field),
             }
         )
         if field.sf_id == 0xD3A9AF:  # EPG
