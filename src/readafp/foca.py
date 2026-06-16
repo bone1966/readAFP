@@ -298,6 +298,7 @@ def _decode_outlines(
 
 
 _FNO = 0xD3AE89  # Font Orientation
+_FNP = 0xD3AC89  # Font Position
 _CPD = 0xD3A687  # Code Page Descriptor
 _CPC = 0xD3A787  # Code Page Control
 _CPI = 0xD38C87  # Code Page Index
@@ -335,6 +336,12 @@ def describe_foca_field(field: "StructuredField") -> str:
         rotation = struct.unpack(">H", d[0:2])[0]
         space_inc = struct.unpack(">H", d[8:10])[0]
         return f"CharRotation={rotation} SpaceCharInc={space_inc}"
+    if sid == _FNP and len(d) >= 10:  # Font Position
+        # MaxAscender/Descender are validated; the underscore fields are
+        # all-zero in available fonts, so their offsets aren't pinned.
+        ascender = struct.unpack(">H", d[6:8])[0]
+        descender = struct.unpack(">H", d[8:10])[0]
+        return f"MaxAscender={ascender} MaxDescender={descender}"
     if sid == _CPD and len(d) >= 38:  # Code Page Descriptor
         name = _decode_name(d[:32]) or "?"
         gcgid_len = struct.unpack(">H", d[32:34])[0]

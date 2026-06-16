@@ -163,3 +163,7 @@ def test_describe_foca_field_decodes_metrics() -> None:
     assert "DefaultChar=SP010000" in cpc and "SpaceCharVal=64" in cpc
     cpi = describe_foca_field(next(f for f in fields if f.sf_id == 0xD38C87))
     assert "6 code points" in cpi and "SP010000" in cpi
+    # FNP: the TIMES-BOLD font's position field decodes to 697/23.
+    fnps = [describe_foca_field(f) for f in fields if f.sf_id == 0xD3AC89]
+    assert all(fnp.startswith("MaxAscender=") for fnp in fnps)
+    assert "MaxAscender=697 MaxDescender=23" in fnps
