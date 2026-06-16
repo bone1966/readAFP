@@ -157,3 +157,9 @@ def test_describe_foca_field_decodes_metrics() -> None:
     assert "PatternsSize=15582" in fnc
     fno = describe_foca_field(next(f for f in fields if f.sf_id == 0xD3AE89))
     assert "CharRotation=0" in fno and "SpaceCharInc=250" in fno
+    cpd = describe_foca_field(next(f for f in fields if f.sf_id == 0xD3A687))
+    assert "NumCodePoints=6" in cpd and "GCGIDLen=8" in cpd
+    cpc = describe_foca_field(next(f for f in fields if f.sf_id == 0xD3A787))
+    assert "DefaultChar=SP010000" in cpc and "SpaceCharVal=64" in cpc
+    cpi = describe_foca_field(next(f for f in fields if f.sf_id == 0xD38C87))
+    assert "6 code points" in cpi and "SP010000" in cpi

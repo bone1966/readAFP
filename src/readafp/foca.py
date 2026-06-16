@@ -298,6 +298,9 @@ def _decode_outlines(
 
 
 _FNO = 0xD3AE89  # Font Orientation
+_CPD = 0xD3A687  # Code Page Descriptor
+_CPC = 0xD3A787  # Code Page Control
+_CPI = 0xD38C87  # Code Page Index
 _PATTECH_NAMES = {
     PATTECH_RASTER: "laser-matrix raster",
     PATTECH_TYPE1: "Type 1 outline",
@@ -332,6 +335,22 @@ def describe_foca_field(field: "StructuredField") -> str:
         rotation = struct.unpack(">H", d[0:2])[0]
         space_inc = struct.unpack(">H", d[8:10])[0]
         return f"CharRotation={rotation} SpaceCharInc={space_inc}"
+    if sid == _CPD and len(d) >= 38:  # Code Page Descriptor
+        name = _decode_name(d[:32]) or "?"
+        gcgid_len = struct.unpack(">H", d[32:34])[0]
+        num_points = struct.unpack(">H", d[36:38])[0]
+        cpgid = struct.unpack(">H", d[40:42])[0] if len(d) >= 42 else 0
+        return (f"CodePage={name!r} NumCodePoints={num_points} "
+                f"GCGIDLen={gcgid_len} CPGID={cpgid}")
+    if sid == _CPC and len(d) >= 9:  # Code Page Control
+        return f"DefaultChar={_decode_name(d[:8])} SpaceCharVal={d[8]}"
+    if sid == _CPI:  # Code Page Index: code point -> GCGID
+        cp = parse_code_page(d)
+        if cp:
+            sample = ", ".join(
+                f"0x{k:02X}→{v}" for k, v in list(cp.items())[:3])
+            more = f", +{len(cp) - 3} more" if len(cp) > 3 else ""
+            return f"{len(cp)} code points: {sample}{more}"
     return ""
 
 
