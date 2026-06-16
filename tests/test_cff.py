@@ -28,6 +28,7 @@ TESTDATA = Path(__file__).resolve().parent.parent / "testdata"
 PLAIN_OTF = TESTDATA / "cff_sample.otf"
 CID_CFF = TESTDATA / "cff_cid_sample.cff"
 FOCA_CFF = TESTDATA / "foca_cff_sample.afp"
+CFF_DOC = TESTDATA / "cff_document_sample.afp"
 
 
 def _plain_cff_bytes() -> bytes:
@@ -180,6 +181,49 @@ def test_foca_cff_renders_real_paths() -> None:
     svg = render.page_to_svg(pages[0])
     # One <path> per decoded glyph outline (not a metadata fallback sheet).
     assert svg.count("<path") == 4
+
+
+# ---------------------------------------------------------------------------
+# Document text drawn in an embedded CFF outline font (Phase B)
+# ---------------------------------------------------------------------------
+def test_cff_document_draws_text_as_outline_paths() -> None:
+    """The page's TRN run renders as embedded CFF outlines, not substitutes."""
+    from readafp import ptoca
+
+    pages = ptoca.extract_pages(list(iter_fields(CFF_DOC.read_bytes())))
+    assert len(pages) == 1
+    page = pages[0]
+    # No substitute-font text runs: every byte resolved to a real glyph.
+    assert page.texts == []
+    # One vector graphic carries the whole run as a single path.
+    assert len(page.graphics) == 1
+    vg = page.graphics[0]
+    # gps_w is the exact sum of the four glyph advances (500+600+550+250).
+    assert vg.graphic.gps_w == 1900
+    # A + H + O(two contours) + period = 5 subpaths.
+    assert vg.graphic.svg.count("M") == 5
+    # Positioned at the PTX cursor (inline 1000; baseline 2000 - ascent).
+    assert vg.x == 1000
+    assert vg.y < 2000
+
+
+def test_cff_document_advance_matches_font() -> None:
+    """The run's design-space width equals the embedded font's advances."""
+    from readafp import ptoca
+
+    page = ptoca.extract_pages(list(iter_fields(CFF_DOC.read_bytes())))[0]
+    font = cff.CFFFont(_plain_cff_bytes())
+    expected = sum(font.glyph(n).advance for n in ("A", "H", "O", "period"))
+    assert page.graphics[0].graphic.gps_w == expected
+
+
+def test_cff_document_renders() -> None:
+    from readafp import ptoca, render
+
+    page = ptoca.extract_pages(list(iter_fields(CFF_DOC.read_bytes())))[0]
+    svg = render.page_to_svg(page)
+    assert svg.count("<path") == 1
+    assert "<text" not in svg  # nothing fell back to substitute text
 
 
 # ---------------------------------------------------------------------------

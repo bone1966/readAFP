@@ -205,58 +205,146 @@ def _ebcdic8(text: str) -> bytes:
     return text.encode("cp500")[:8].ljust(8, b"\x40")
 
 
-def build_foca_cff_afp(cff_bytes: bytes) -> bytes:
-    """Wrap the plain CFF in a FOCA CID outline font resource AFP.
+# GCGID, CFF glyph name, advance, and the EBCDIC code point that the
+# document's embedded code page maps to each glyph (A/H/O/period in cp500).
+FONT_GLYPHS = [
+    ("LA010000", "A", 500, 0xC1),
+    ("LH010000", "H", 600, 0xC8),
+    ("LO010000", "O", 550, 0xD6),
+    ("PD010000", "period", 250, 0x4B),
+]
+CS_NAME = "C0CFF001"   # FOCA character-set (font) name
+CP_NAME = "CPCFF01"    # embedded code-page name (<= 8 chars)
+
+
+def _font_bracket(cff_bytes: bytes) -> bytes:
+    """Build a FOCA CID outline font bracket (BFN...EFN) embedding the CFF.
 
     GCGIDs map through the Font Name Map (FNN) to the CFF glyph names so the
     decoder resolves each character to a real outline.
     """
     from readafp.foca import BFN, FNC, FND, FNI, FNN, FNG, EFN
 
-    glyphs = [("LA010000", "A", 500), ("LH010000", "H", 600),
-              ("LO010000", "O", 550), ("PD010000", "period", 250)]
-
     # FNC: byte1 = PatTech (0x1F CID outline); byte15 = FNI record length.
     fnc = bytearray(20)
     fnc[1] = 0x1F
-    struct.pack_into(">H", fnc, 10, 999)  # MaxW-1
-    struct.pack_into(">H", fnc, 12, 999)  # MaxH-1
-    fnc[15] = 10                           # 10-byte FNI records
-    fnc[16] = 0x00                         # alignment factor 1
-    struct.pack_into(">H", fnc, 18, 1000)  # patterns size
+    struct.pack_into(">H", fnc, 10, 999)   # MaxW-1
+    struct.pack_into(">H", fnc, 12, 999)   # MaxH-1
+    fnc[15] = 10                            # 10-byte FNI records
+    fnc[16] = 0x00                          # alignment factor 1
+    struct.pack_into(">H", fnc, 18, 1000)   # patterns size
 
     fnd = bytearray(36)
     fnd[:32] = "HELVETICA CFF".encode("cp500").ljust(32, b"\x40")
     fnd[32] = 5  # weight
     fnd[33] = 5  # width
-    struct.pack_into(">H", fnd, 34, 100)  # max vert size (10pt)
+    struct.pack_into(">H", fnd, 34, 100)    # max vert size (10pt)
 
     fni = b"".join(_ebcdic8(g) + struct.pack(">H", adv)
-                   for g, _name, adv in glyphs)
+                   for g, _name, adv, _cp in FONT_GLYPHS)
 
     # FNN: 2-byte header, 12-byte (GCGID, offset) records, then name pool.
-    header = b"\x00\x00"
-    rec_size = 12 * len(glyphs)
+    rec_size = 12 * len(FONT_GLYPHS)
     pool = bytearray()
     offsets = []
-    for _g, name, _adv in glyphs:
+    for _g, name, _adv, _cp in FONT_GLYPHS:
         offsets.append(2 + rec_size + len(pool))
         encoded = name.encode("ascii")
         pool += bytes([len(encoded) + 1]) + encoded  # length counts itself
     records = b"".join(_ebcdic8(g) + struct.pack(">I", off)
-                       for (g, _n, _a), off in zip(glyphs, offsets))
-    fnn = header + records + bytes(pool)
+                       for (g, _n, _a, _cp), off in zip(FONT_GLYPHS, offsets))
+    fnn = b"\x00\x00" + records + bytes(pool)
 
     out = bytearray()
-    out += _sf(0xD3A8A8, b"CFFFONT\x00")  # BDT
-    out += _sf(BFN, _ebcdic8("C0CFF001"))
+    out += _sf(BFN, _ebcdic8(CS_NAME))
     out += _sf(FNC, bytes(fnc))
     out += _sf(FND, bytes(fnd))
     out += _sf(FNI, fni)
     out += _sf(FNN, fnn)
     out += _sf(FNG, cff_bytes)
-    out += _sf(EFN, _ebcdic8("C0CFF001"))
+    out += _sf(EFN, _ebcdic8(CS_NAME))
+    return bytes(out)
+
+
+def build_foca_cff_afp(cff_bytes: bytes) -> bytes:
+    """A standalone FOCA CID outline font resource AFP (specimen pipeline)."""
+    out = bytearray()
+    out += _sf(0xD3A8A8, b"CFFFONT\x00")  # BDT
+    out += _font_bracket(cff_bytes)
     out += _sf(0xD3A9A8, b"CFFFONT\x00")  # EDT
+    return bytes(out)
+
+
+def _code_page_bracket() -> bytes:
+    """Build an embedded code page (BCP...ECP) mapping bytes -> GCGID."""
+    cpi = bytearray()
+    for gcgid, _name, _adv, cp in FONT_GLYPHS:
+        # CPI single-byte record: GCGID(8 EBCDIC) + section(1) + codepoint(1).
+        cpi += _ebcdic8(gcgid) + bytes([0x00, cp])
+    out = bytearray()
+    out += _sf(0xD3A887, _ebcdic8(CP_NAME))  # BCP
+    out += _sf(0xD38C87, bytes(cpi))          # CPI
+    out += _sf(0xD3A987, _ebcdic8(CP_NAME))  # ECP
+    return bytes(out)
+
+
+def _mcf_format2() -> bytes:
+    """MCF (format 2) mapping local id 1 -> (code page, character set)."""
+    def fqn(fqn_type: int, name: str) -> bytes:
+        data = bytes([fqn_type, 0x00]) + name.encode("cp500")
+        return bytes([len(data) + 2, 0x02]) + data
+
+    rid = bytes([0x04, 0x24, 0x00, 0x01])     # Resource Local ID = 1
+    triplets = rid + fqn(0x85, CP_NAME) + fqn(0x86, CS_NAME)
+    group = struct.pack(">H", len(triplets) + 2) + triplets
+    return _sf(0xD3AB8A, group)  # MCF format 2
+
+
+def _ptx_run() -> bytes:
+    """PTX positioning the cursor, selecting font 1, then a TRN of 'AHO.'.
+
+    Chained control sequences: AMI (inline) -> AMB (baseline) -> SCFL
+    (font 1) -> TRN (text, EBCDIC bytes the code page maps to GCGIDs).
+    """
+    esc = b"\x2b\xd3"
+    ami = bytes([0x04, 0xC7]) + struct.pack(">H", 1000)   # inline = 1000
+    amb = bytes([0x04, 0xD3]) + struct.pack(">H", 2000)   # baseline = 2000
+    scfl = bytes([0x03, 0xF1, 0x01])                       # SCFL local id 1
+    text = bytes([cp for _g, _n, _a, cp in FONT_GLYPHS])
+    trn = bytes([len(text) + 2, 0xDA]) + text             # TRN (unchained)
+    return _sf(0xD3EE9B, esc + ami + amb + scfl + trn)
+
+
+def _pgd() -> bytes:
+    data = (bytes([0, 0]) + struct.pack(">HH", 14400, 14400)
+            + (12240).to_bytes(3, "big") + (15840).to_bytes(3, "big"))
+    return _sf(0xD3A6AF, data)
+
+
+def build_cff_document_afp(cff_bytes: bytes) -> bytes:
+    """A document AFP whose page text is drawn in the embedded CFF outline.
+
+    A resource group carries the code page (byte -> GCGID) and the CFF
+    character set; an MCF binds them to local id 1; the page's PTX selects
+    that font and emits 'AHO.' so the renderer resolves each byte through
+    the code page to a real outline glyph.
+    """
+    out = bytearray()
+    out += _sf(0xD3A8A8, b"CFFDOC\x00\x00")        # BDT
+    out += _sf(0xD3A8C6, b"RES\x00\x00\x00\x00\x00")  # BRG
+    out += _code_page_bracket()
+    out += _font_bracket(cff_bytes)
+    out += _sf(0xD3A9C6, b"RES\x00\x00\x00\x00\x00")  # ERG
+    out += _sf(0xD3A8AF, _ebcdic8("PAGE0001"))     # BPG
+    out += _sf(0xD3A8C9, _ebcdic8("AEG00001"))     # BAG
+    out += _pgd()
+    out += _mcf_format2()
+    out += _sf(0xD3A9C9, _ebcdic8("AEG00001"))     # EAG
+    out += _sf(0xD3A89B, _ebcdic8("PT000001"))     # BPT
+    out += _ptx_run()
+    out += _sf(0xD3A99B, _ebcdic8("PT000001"))     # EPT
+    out += _sf(0xD3A9AF, _ebcdic8("PAGE0001"))     # EPG
+    out += _sf(0xD3A9A8, b"CFFDOC\x00\x00")        # EDT
     return bytes(out)
 
 
@@ -274,6 +362,10 @@ def main() -> None:
     afp = OUT / "foca_cff_sample.afp"
     afp.write_bytes(build_foca_cff_afp(cff_bytes))
     print(f"wrote {afp.name}")
+
+    doc = OUT / "cff_document_sample.afp"
+    doc.write_bytes(build_cff_document_afp(cff_bytes))
+    print(f"wrote {doc.name}")
 
 
 if __name__ == "__main__":

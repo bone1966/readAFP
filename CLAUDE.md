@@ -177,19 +177,28 @@ local-id→name indirection is not yet handled.
   No CFF font exists in the corpus (the two PatTech X'1F' fonts embed
   Type 1 PFB), so `cff.py` is validated against fontTools as an
   independent oracle — see `tests/test_cff.py` and the fixtures built by
-  `tools/make_cff_sample.py`.
-- Document text in the file's own fonts (Phase B) — done for **raster**
-  fonts whose code page is also embedded: a TRN run resolves each byte
-  through the embedded code page (CPI → GCGID) to a glyph in the embedded
-  character set and draws the real bitmap (`_emit_embedded_glyphs` in
-  `ptoca.py`, fed by `_scan_code_pages` + `triplets.mcf_font_resources`).
-  Still open: (a) text whose code page is **external** (e.g. cp1140, the
-  bulk of `Sample 1.afp`) — we have the codec but not the byte→GCGID map,
-  so it stays substitute Arial and is flagged by the missing-resources
-  panel; (b) glyph advance uses the scaled bitmap width — the FNI metric
+  `tools/make_cff_sample.py`. Both Type 1 and CFF outline glyphs are now
+  wired into **document** text as well as the specimen (see Phase B below).
+- Document text in the file's own fonts (Phase B) — done for both
+  **raster** and **outline** fonts whose code page is also embedded. A TRN
+  run resolves each byte through the embedded code page (CPI → GCGID) to a
+  glyph in the embedded character set: raster glyphs draw as real bitmaps
+  (`_emit_embedded_glyphs`); outline glyphs (Type 1 / CFF) draw as one
+  `<path>` VectorGraphic per run, laid out in the font's design-unit space
+  and scaled so the em maps to the run's point size, stepping by each
+  glyph's **exact** design-unit advance (`_emit_embedded_outlines`). Both
+  are fed by `_scan_code_pages` + `triplets.mcf_font_resources` and keyed
+  by MCF local id. No corpus document uses an embedded outline font, so the
+  outline path is validated against a synthetic fixture
+  (`testdata/cff_document_sample.afp`, built by `make_cff_sample.py`) whose
+  glyph shapes still trace to the fontTools-validated CFF outlines. Still
+  open: (a) text whose code page is **external** (e.g. cp1140, the bulk of
+  `Sample 1.afp`) — we have the codec but not the byte→GCGID map, so it
+  stays substitute Arial and is flagged by the missing-resources panel;
+  (b) raster glyph advance uses the scaled bitmap width — the FNI metric
   increment is in a different design unit (pattern pels vs metric units)
-  not yet reconciled; (c) outline (Type 1) glyphs are not yet wired into
-  document text, only the specimen; (d) only 0° orientation.
+  not yet reconciled (the outline path sidesteps this by using the glyph's
+  own advance); (c) only 0° orientation for embedded glyphs.
 - FNI character-increment widths are not yet fed into document text
   fitting (render still uses position-anchored width estimation; the
   primary health-coverage sample embeds no fonts, so it cannot benefit).
