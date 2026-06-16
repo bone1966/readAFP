@@ -357,14 +357,14 @@
       </div>
       <table id="sf-table">
         <tr><th>Offset</th><th>ID</th><th>Structured field</th><th>Name</th>
-            <th>Data len</th><th>Field data</th></tr>
+            <th>Field size</th><th>Field data</th></tr>
         {% for f in fields %}
         <tr data-name="{{ f.name }}" data-offset="{{ f.offset }}"{% if f.page is not none %} data-page="{{ f.page }}"{% endif %}{% if f.search_text %} data-search="{{ f.search_text }}" data-kind="{% if f.sf_id == '0xD3EE9B' %}ptx{% elif f.sf_id == '0xD3EEEE' %}nop{% else %}tle{% endif %}"{% endif %}>
           <td class="num">{{ f.offset }}</td>
           <td class="hex">{{ f.sf_id }}</td>
           <td class="sf-name" style="padding-left: {{ 12 + f.depth * 18 }}px">{{ f.name }}</td>
           <td class="token">{{ f.token }}</td>
-          <td class="num">{{ f.length }}</td>
+          <td class="num" title="{{ f.data_len }} data bytes">{{ f.size }}</td>
           <td class="fdata"{% if f.data %} title="hex: {{ f.preview }}"{% endif %}>{% if f.data %}<span class="fd-text">{{ f.data }}</span>{% else %}<span class="hex">{{ f.preview }}</span>{% endif %}{% if f.triplets %}
             <span class="trip-count" title="Click to show decoded triplets">▸ {{ f.triplets|length }} triplet{{ "s" if f.triplets|length != 1 }}</span>{% endif %}</td>
         </tr>

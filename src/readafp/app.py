@@ -409,7 +409,11 @@ def _field_rows(parsed: List[StructuredField]) -> List[Dict[str, Any]]:
                 "sf_id": f"0x{field.sf_id:06X}",
                 "name": field.name,
                 "token": field.token_name or "",
-                "length": len(field.data),
+                # Full structured-field record size (matches AFP inspectors):
+                # 0x5A + length(2) + SF-ID(3) + flags(1) + sequence(2) = 9
+                # bytes of header, plus the data. data_len kept for context.
+                "size": len(field.data) + 9,
+                "data_len": len(field.data),
                 "depth": depth,
                 "preview": field.data[:16].hex(" "),
                 "page": current_page,
