@@ -101,7 +101,8 @@
     .summary div { display: flex; justify-content: space-between; padding: 3px 6px;
       font-size: 0.85rem; cursor: pointer; border-radius: 6px; }
     .summary div:hover { background: var(--card); }
-    .summary div.active { background: var(--card); color: var(--accent); }
+    .summary div.active { background: var(--card); color: var(--accent);
+      box-shadow: inset 3px 0 0 var(--accent); }
     .summary span:last-child { color: var(--dim); font-variant-numeric: tabular-nums; }
     .find-bar { display: flex; gap: 6px; align-items: center; margin-bottom: 10px; }
     .find-bar #find-input { flex: 1; min-width: 80px; background: var(--card);
@@ -117,6 +118,10 @@
     .find-bar button:disabled { opacity: 0.4; cursor: default; }
     .find-count { color: var(--dim); font-size: 0.78rem; min-width: 56px;
       font-variant-numeric: tabular-nums; }
+    td.fdata { color: var(--text); }
+    td.fdata .hex { color: var(--dim); font-family: Consolas, monospace; }
+    td.fdata .fd-text { color: var(--text); }
+    td.fdata mark.find-hit { background: #ffc107; color: #1a1a1a; border-radius: 2px; }
     #sf-table tr.find-match td { background: rgba(255, 193, 7, 0.12); }
     #sf-table tr.find-current td { background: rgba(255, 193, 7, 0.34); }
     #sf-table tr.find-current td:first-child { box-shadow: inset 3px 0 0 #ffc107; }
@@ -345,14 +350,14 @@
         <span id="find-count" class="find-count"></span>
       </div>
       <div class="summary">
-        <h3>Field counts <span style="font-weight:400;color:var(--dim)">— click to filter</span></h3>
+        <h3>Field counts <span style="font-weight:400;color:var(--dim)">— click to filter (toggle several)</span></h3>
         {% for name, count in summary %}
         <div data-name="{{ name }}"><span>{{ name }}</span><span>{{ count }}</span></div>
         {% endfor %}
       </div>
       <table id="sf-table">
         <tr><th>Offset</th><th>ID</th><th>Structured field</th><th>Name</th>
-            <th>Data len</th><th>Data preview (hex)</th></tr>
+            <th>Data len</th><th>Field data</th></tr>
         {% for f in fields %}
         <tr data-name="{{ f.name }}" data-offset="{{ f.offset }}"{% if f.page is not none %} data-page="{{ f.page }}"{% endif %}{% if f.search_text %} data-search="{{ f.search_text }}" data-kind="{% if f.sf_id == '0xD3EE9B' %}ptx{% elif f.sf_id == '0xD3EEEE' %}nop{% else %}tle{% endif %}"{% endif %}>
           <td class="num">{{ f.offset }}</td>
@@ -360,7 +365,7 @@
           <td class="sf-name" style="padding-left: {{ 12 + f.depth * 18 }}px">{{ f.name }}</td>
           <td class="token">{{ f.token }}</td>
           <td class="num">{{ f.length }}</td>
-          <td class="hex">{{ f.preview }}{% if f.triplets %}
+          <td class="fdata"{% if f.data %} title="hex: {{ f.preview }}"{% endif %}>{% if f.data %}<span class="fd-text">{{ f.data }}</span>{% else %}<span class="hex">{{ f.preview }}</span>{% endif %}{% if f.triplets %}
             <span class="trip-count" title="Click to show decoded triplets">▸ {{ f.triplets|length }} triplet{{ "s" if f.triplets|length != 1 }}</span>{% endif %}</td>
         </tr>
         {% if f.triplets %}
@@ -540,20 +545,22 @@
       }
     });
 
-    // Field-count click -> filter the table to that field type (toggle).
+    // Field-count click -> filter the table to the selected types. Clicking
+    // toggles each type, so several can be shown at once (NOPs + TLEs + ...).
     const countRows = document.querySelectorAll(".summary div[data-name]");
+    function applyFilter() {
+      const active = Array.from(countRows)
+        .filter((c) => c.classList.contains("active"))
+        .map((c) => c.dataset.name);
+      document.querySelectorAll("#sf-table tr[data-name]").forEach((tr) => {
+        tr.classList.toggle(
+          "filtered", active.length > 0 && !active.includes(tr.dataset.name));
+      });
+    }
     countRows.forEach((cr) => {
       cr.addEventListener("click", () => {
-        const wasActive = cr.classList.contains("active");
-        countRows.forEach((c) => c.classList.remove("active"));
-        const rows = document.querySelectorAll("#sf-table tr[data-name]");
-        rows.forEach((tr) => tr.classList.remove("filtered"));
-        if (!wasActive) {
-          cr.classList.add("active");
-          rows.forEach((tr) => {
-            if (tr.dataset.name !== cr.dataset.name) tr.classList.add("filtered");
-          });
-        }
+        cr.classList.toggle("active");
+        applyFilter();
       });
     });
 
@@ -575,6 +582,30 @@
         if (mode === "type") return tr.dataset.name || "";
         if (tr.dataset.kind !== mode) return null;  // ptx/nop kind must match
         return tr.dataset.search || "";
+      }
+      const esc = (s) => s.replace(/[&<>]/g,
+        (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+      function clearHits() {
+        document.querySelectorAll("#sf-table .fd-text").forEach((span) => {
+          if (span.dataset.orig !== undefined) span.textContent = span.dataset.orig;
+        });
+      }
+      function highlightRow(tr, needle, cs) {
+        const span = tr.querySelector(".fd-text");
+        if (!span) return;
+        const text = span.dataset.orig !== undefined
+          ? span.dataset.orig : span.textContent;
+        span.dataset.orig = text;
+        const hay = cs ? text : text.toLowerCase();
+        const nee = cs ? needle : needle.toLowerCase();
+        let out = "", i = 0, idx;
+        while ((idx = hay.indexOf(nee, i)) >= 0) {
+          out += esc(text.slice(i, idx)) +
+            '<mark class="find-hit">' + esc(text.slice(idx, idx + nee.length)) +
+            "</mark>";
+          i = idx + nee.length;
+        }
+        span.innerHTML = out + esc(text.slice(i));
       }
       function focusCurrent() {
         allRows.forEach((tr) => tr.classList.remove("find-current"));
@@ -601,6 +632,7 @@
       function recompute() {
         allRows.forEach((tr) =>
           tr.classList.remove("find-match", "find-current"));
+        clearHits();
         const q = input.value;
         const mode = modeSel.value;
         if (!q) { matches = []; cur = -1; updateCount(); return; }
@@ -617,6 +649,7 @@
           return (cs ? hay : hay.toLowerCase()).includes(needle);
         });
         matches.forEach((tr) => tr.classList.add("find-match"));
+        if (mode !== "type") matches.forEach((tr) => highlightRow(tr, q, cs));
         cur = matches.length ? 0 : -1;
         focusCurrent();
         updateCount();

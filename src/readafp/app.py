@@ -353,6 +353,33 @@ def _field_search_text(field: StructuredField) -> str:
     return ""
 
 
+def _field_data_summary(
+    field: StructuredField, search_text: str, triplets: List[Dict[str, Any]]
+) -> str:
+    """A readable one-line summary of a field's contents, or "".
+
+    Prefers decoded text (NOP/PTX/TLE), then a couple of field-specific
+    decodes, then a compact triplet rundown — so the inspector can show
+    what a field actually says instead of only its hex. The caller falls
+    back to the hex preview when this is empty.
+    """
+    if search_text:
+        return search_text
+    if field.sf_id == 0xD3A6AF and len(field.data) >= 12:  # PGD
+        from readafp.ptoca import _parse_pgd
+        w, h, upi = _parse_pgd(field.data)
+        return f"page {w}×{h} L-units · {upi} units/inch"
+    if triplets:
+        bits = []
+        for t in triplets[:3]:
+            name = t["name"].split(" (")[0]
+            detail = t["detail"]
+            bits.append(f"{name}: {detail}" if detail else name)
+        more = f" (+{len(triplets) - 3} more)" if len(triplets) > 3 else ""
+        return "; ".join(bits) + more
+    return ""
+
+
 def _field_rows(parsed: List[StructuredField]) -> List[Dict[str, Any]]:
     """Flatten structured fields into display rows with nesting depth.
 
@@ -370,6 +397,8 @@ def _field_rows(parsed: List[StructuredField]) -> List[Dict[str, Any]]:
         if field.sf_id == 0xD3A8AF:  # BPG
             page_idx += 1
             current_page = page_idx
+        triplets = describe_field(field)
+        search_text = _field_search_text(field)
         rows.append(
             {
                 "offset": field.offset,
@@ -380,8 +409,9 @@ def _field_rows(parsed: List[StructuredField]) -> List[Dict[str, Any]]:
                 "depth": depth,
                 "preview": field.data[:16].hex(" "),
                 "page": current_page,
-                "triplets": describe_field(field),
-                "search_text": _field_search_text(field),
+                "triplets": triplets,
+                "search_text": search_text,
+                "data": _field_data_summary(field, search_text, triplets),
             }
         )
         if field.sf_id == 0xD3A9AF:  # EPG
